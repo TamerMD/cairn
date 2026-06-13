@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { ProtocolProvider } from "./providers";
 
 const fraunces = Fraunces({
   variable: "--font-fraunces",
@@ -36,7 +37,9 @@ export default function RootLayout({
       lang="en"
       className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <ProtocolProvider>{children}</ProtocolProvider>
+      </body>
     </html>
   );
 }
