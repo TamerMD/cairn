@@ -416,11 +416,27 @@ function slug(s: string): string {
 export function buildProtocolFromCompiled(data: CompiledProtocol): Protocol {
   const usedIds = new Set<string>();
   const units: ProtocolUnit[] = [];
+  const condition = data.condition?.trim() || "Protocol";
+  // Cohort trigger used as a fallback so a trigger-less unit (e.g. a note
+  // section, or one whose conditions failed to parse) still fires for the
+  // cohort instead of being silently dropped.
+  const cohortCondition: Condition = {
+    fact: "problems",
+    op: "includes",
+    value: condition,
+    label: "Problem list",
+  };
 
   for (const ru of data.units ?? []) {
     const all = (ru.whenAll ?? []).map(toCondition).filter(Boolean) as Condition[];
     const any = (ru.whenAny ?? []).map(toCondition).filter(Boolean) as Condition[];
-    if (all.length === 0 && any.length === 0) continue; // inert; drop
+
+    // Eligibility gates must carry real conditions; everything else falls back
+    // to the cohort trigger rather than being dropped.
+    if (all.length === 0 && any.length === 0) {
+      if (ru.type === "eligibility") continue;
+      all.push(cohortCondition);
+    }
 
     const trigger: Predicate = {};
     if (all.length) trigger.all = all;
@@ -453,8 +469,6 @@ export function buildProtocolFromCompiled(data: CompiledProtocol): Protocol {
           : undefined,
     });
   }
-
-  const condition = data.condition?.trim() || "Protocol";
 
   // Guarantee an eligibility gate so the protocol composes at the point of care.
   if (!units.some((u) => u.type === "eligibility")) {

@@ -172,24 +172,65 @@ export default function AuthorClient() {
     void interviewTurn(next);
   }
 
+  const [compileTrace, setCompileTrace] = useState("");
+  const [compileItems, setCompileItems] = useState<string[]>([]);
+  const compileBuf = useRef("");
+  const compileSeen = useRef<Set<string>>(new Set());
+
   async function compile() {
     setStage("compiling");
     setError(null);
+    setCompileTrace("");
+    setCompileItems([]);
+    compileBuf.current = "";
+    compileSeen.current = new Set();
     try {
       const res = await fetch("/api/compile", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          synthesis,
-          messages,
-          condition: synthesis?.condition,
-        }),
+        body: JSON.stringify({ synthesis, messages, condition: synthesis?.condition }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Compile failed");
-      replaceProtocol(data.protocol as Protocol);
-      setAuthored(data.protocol as Protocol);
-      setCoverage(data.coverage ?? []);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? "Compile failed");
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let result: { protocol: Protocol; coverage: Coverage[] } | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === "thinking") setCompileTrace((t) => t + evt.text);
+          else if (evt.type === "draft") {
+            compileBuf.current += evt.text;
+            const re = /"content"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+            const found: string[] = [];
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(compileBuf.current))) {
+              const val = m[1].replace(/\\"/g, '"').trim();
+              if (val && !compileSeen.current.has(val)) {
+                compileSeen.current.add(val);
+                found.push(val);
+              }
+            }
+            if (found.length) setCompileItems((d) => [...d, ...found]);
+          } else if (evt.type === "error") throw new Error(evt.error);
+          else if (evt.type === "result")
+            result = { protocol: evt.protocol as Protocol, coverage: evt.coverage ?? [] };
+        }
+      }
+      if (!result) throw new Error("Compile produced no protocol");
+      replaceProtocol(result.protocol);
+      setAuthored(result.protocol);
+      setCoverage(result.coverage);
       setStage("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Compile failed");
@@ -250,7 +291,9 @@ export default function AuthorClient() {
             onCompile={compile}
           />
         )}
-        {stage === "compiling" && <Compiling />}
+        {stage === "compiling" && (
+          <Compiling trace={compileTrace} items={compileItems} />
+        )}
         {stage === "done" && authored && (
           <Done protocol={authored} coverage={coverage} />
         )}
@@ -633,38 +676,57 @@ function Interview({
 
 // ── Compiling (parallel fan-out) ─────────────────────────────────────────────
 
-function Compiling() {
-  const groups = [
-    "Eligibility & exclusions",
-    "Recommended work-up",
-    "Preferred therapy",
-    "Follow-up & monitoring",
-    "Note scaffold",
-  ];
+function Compiling({ trace, items }: { trace: string; items: string[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [trace, items]);
+
   return (
-    <div className="mt-12">
-      <p className="text-center font-display text-2xl text-ink">
-        Compiling computable units
-      </p>
-      <p className="mt-2 text-center text-sm text-ink-muted">
-        Authoring triggers across dimensions in parallel — each grounded in your
-        sources and decisions.
-      </p>
-      <div className="mx-auto mt-8 max-w-md space-y-2">
-        {groups.map((g, i) => (
-          <div
-            key={g}
-            className="flex items-center gap-3 rounded-lg border border-line bg-card px-4 py-2.5"
-            style={{ animation: `fadeIn 320ms ease-out ${i * 90}ms both` }}
-          >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-stone" />
-            <span className="text-[14px] text-ink">{g}</span>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-stone-soft">
-              authoring…
-            </span>
-          </div>
-        ))}
+    <div className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-sm font-semibold text-stone">
+          Compiling computable units
+          {items.length > 0 ? ` · ${items.length} authored` : ""}
+        </div>
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-muted">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-stone" />
+          authoring triggers
+        </div>
       </div>
+
+      <div
+        ref={ref}
+        className="h-[420px] overflow-y-auto rounded-2xl border border-stone-deep bg-stone-deep p-6 shadow-inner"
+      >
+        {trace && (
+          <p className="mb-4 whitespace-pre-wrap border-l-2 border-stone-soft/40 pl-3 font-mono text-[12px] leading-relaxed text-paper/60">
+            {trace}
+          </p>
+        )}
+        {items.length === 0 && !trace && (
+          <p className="font-mono text-[13px] text-paper/70">
+            Authoring computable units with triggers over the patient chart…
+          </p>
+        )}
+        <ul className="space-y-1.5">
+          {items.map((it, i) => (
+            <li
+              key={i}
+              className="font-mono text-[13px] leading-snug text-paper/90"
+              style={{ animation: "fadeIn 280ms ease-out" }}
+            >
+              <span className="text-stone-soft">▸ </span>
+              {it}
+            </li>
+          ))}
+        </ul>
+        <span className="mt-1 inline-block h-4 w-[7px] translate-y-0.5 animate-pulse bg-paper/70" />
+      </div>
+
+      <p className="mt-3 text-center text-[13px] text-ink-muted">
+        Each unit is grounded in your sources and the decisions from the interview.
+      </p>
     </div>
   );
 }

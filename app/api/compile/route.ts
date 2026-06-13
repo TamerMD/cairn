@@ -7,7 +7,7 @@
 // JSON output (no grammar-constrained structured decoding, which is far slower
 // on large/nested schemas) + a validating builder for safety.
 
-import { hasApiKey, runJson } from "@/lib/anthropic";
+import { hasApiKey, runJsonStreaming } from "@/lib/anthropic";
 import {
   buildProtocolFromCompiled,
   chartVocabulary,
@@ -29,6 +29,11 @@ ELIGIBILITY — get this right, it decides who the protocol runs on:
 - A care GOAL (fertility, cycle control) or therapy CONTRAINDICATION (e.g. pregnancy before letrozole) is NOT eligibility. Never gate the cohort on a goal. Put goal/contraindication logic on the SPECIFIC order's own trigger.
 
 TRIGGERS must be COMPUTABLE over the chart vocabulary provided. Use the listed fact names so units fire on real charts. For non-eligibility units, gate is "none".
+
+TRIGGER BREADTH — critical so units actually fire:
+- Assessment fields, counseling points, follow-up, and note sections apply to the WHOLE cohort: trigger them with just { problems includes <condition> } (broad). Do NOT add BMI/lab/goal conditions to these.
+- Reserve NARROW triggers (BMI thresholds, lab:missing, a specific goal) ONLY for orders/therapies they genuinely gate — e.g. OGTT when BMI≥25, letrozole when goals includes Fertility, a lab order only when that lab is missing.
+- A typical cohort patient should fire most of the protocol. If you find yourself adding a narrow condition, ask whether it truly gates the action; if not, use the broad cohort trigger.
 Reflect the director's confirmed choices: set decisionRef to the matching decision id and record those decisions. Ground each unit's sourceRef in the evidence. Set planKind for actionable units. Never give medical advice.`;
 
 export async function POST(request: Request) {
@@ -50,13 +55,7 @@ export async function POST(request: Request) {
     .map((m) => `${m.role === "assistant" ? "Cairn" : "Director"}: ${m.content}`)
     .join("\n");
 
-  try {
-    const compiled = await runJson<CompiledProtocol>({
-      system: SYSTEM,
-      content: [
-        {
-          type: "text",
-          text: `${chartVocabulary()}
+  const userText = `${chartVocabulary()}
 
 SOURCE SYNTHESIS (JSON):
 ${JSON.stringify(body.synthesis ?? {}, null, 1)}
@@ -64,29 +63,56 @@ ${JSON.stringify(body.synthesis ?? {}, null, 1)}
 INTERVIEW TRANSCRIPT:
 ${convo || "(none)"}
 
-Compile the computable protocol now. Author a focused set of about 8–12 units total (one inclusion gate, any cohort exclusions, the core work-up/therapy/follow-up, and 3–4 note sections). Be concise — short content and rationale.
+Compile the computable protocol now. Author a COMPLETE set of 10–14 units that covers the protocol — do not under-deliver:
+- exactly one inclusion eligibility gate (+ any cohort exclusions);
+- every recommended work-up order and assessment field from the synthesis;
+- the preferred-therapy order(s) and key counseling points;
+- the follow-up unit;
+- 3–4 noteSection units for documentation.
+Be concise — short content and rationale, but include all clinically indicated units.
 
 Return ONLY a JSON object in a \`\`\`json code block, matching this shape exactly:
-${COMPILE_JSON_SHAPE}`,
-        },
-      ],
-      maxTokens: 12000,
-      effort: "low",
-      thinking: "disabled",
-    });
+${COMPILE_JSON_SHAPE}`;
 
-    const protocol = buildProtocolFromCompiled(compiled);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      try {
+        const compiled = await runJsonStreaming<CompiledProtocol>(
+          {
+            system: SYSTEM,
+            content: [{ type: "text", text: userText }],
+            maxTokens: 14000,
+            effort: "low",
+            thinking: "disabled",
+          },
+          {
+            onThinking: (t) => send({ type: "thinking", text: t }),
+            onText: (t) => send({ type: "draft", text: t }),
+          },
+        );
+        const protocol = buildProtocolFromCompiled(compiled);
+        const coverage = loadPatients().map((p) => {
+          const plan = composeVisitPlan(protocol, p);
+          return { id: p.id, eligible: plan.eligible, items: plan.items.length };
+        });
+        send({ type: "result", protocol, coverage });
+      } catch (e) {
+        send({ type: "error", error: e instanceof Error ? e.message : "Compile failed" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
 
-    const coverage = loadPatients().map((p) => {
-      const plan = composeVisitPlan(protocol, p);
-      return { id: p.id, eligible: plan.eligible, items: plan.items.length };
-    });
-
-    return Response.json({ protocol, coverage });
-  } catch (e) {
-    return Response.json(
-      { error: e instanceof Error ? e.message : "Compile failed" },
-      { status: 500 },
-    );
-  }
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      "x-accel-buffering": "no",
+      connection: "keep-alive",
+    },
+  });
 }

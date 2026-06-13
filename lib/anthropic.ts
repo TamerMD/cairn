@@ -118,6 +118,51 @@ export async function runJson<T>(opts: {
 }
 
 /**
+ * Streaming plain-JSON generation. Streams thinking + the JSON text as it's
+ * produced (so the UI shows live progress and the connection never idles), then
+ * parses fenced/bare JSON from the full reply. No grammar constraint.
+ */
+export async function runJsonStreaming<T>(
+  opts: {
+    system: string;
+    content: Anthropic.ContentBlockParam[];
+    maxTokens?: number;
+    effort?: Effort;
+    thinking?: "adaptive" | "disabled";
+    model?: string;
+  },
+  handlers: { onThinking?: (t: string) => void; onText?: (t: string) => void },
+): Promise<T> {
+  const c = getClient();
+  const ms = c.messages.stream({
+    model: opts.model ?? MODEL,
+    max_tokens: opts.maxTokens ?? 12000,
+    thinking:
+      opts.thinking === "disabled"
+        ? { type: "disabled" }
+        : { type: "adaptive", display: "summarized" },
+    output_config: { effort: opts.effort ?? "low" },
+    system: opts.system,
+    messages: [{ role: "user", content: opts.content }],
+  } as Anthropic.MessageStreamParams);
+
+  for await (const event of ms) {
+    if (event.type === "content_block_delta") {
+      if (event.delta.type === "thinking_delta") handlers.onThinking?.(event.delta.thinking);
+      else if (event.delta.type === "text_delta") handlers.onText?.(event.delta.text);
+    }
+  }
+
+  const final = await ms.finalMessage();
+  const text = final.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  if (!text.trim()) throw new Error("Model returned no output");
+  return JSON.parse(extractJson(text)) as T;
+}
+
+/**
  * Like runStructured, but streams summarized thinking as it goes so the UI can
  * render Opus's live reasoning trace. Calls handlers as events arrive and
  * returns the validated final object.
