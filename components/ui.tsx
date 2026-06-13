@@ -18,8 +18,16 @@ export function CairnMark({ className = "" }: { className?: string }) {
   );
 }
 
-export function SiteHeader({ active }: { active?: "author" | "care" }) {
-  const link = (href: string, label: string, key: "author" | "care") =>
+export function SiteHeader({
+  active,
+}: {
+  active?: "author" | "care" | "protocol";
+}) {
+  const link = (
+    href: string,
+    label: string,
+    key: "author" | "care" | "protocol",
+  ) =>
     (
       <Link
         href={href}
@@ -41,6 +49,7 @@ export function SiteHeader({ active }: { active?: "author" | "care" }) {
         </Link>
         <nav className="flex items-center gap-7 font-mono text-xs uppercase tracking-[0.18em]">
           {link("/author", "Author", "author")}
+          {link("/protocol", "Protocol", "protocol")}
           {link("/care", "Point of care", "care")}
         </nav>
       </div>
