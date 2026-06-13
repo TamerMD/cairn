@@ -1,25 +1,31 @@
 // ── POST /api/interview ───────────────────────────────────────────────────────
-// One grounded interview turn. Given a fork (with its source-grounded options)
-// and the prior answers, Opus produces the question to put to the clinical
-// leader — citing what the sources actually said and acknowledging what they've
-// already decided. Bounded to the curated fork set, so it's reliably crisp.
+// A free-flowing, model-driven interview that the clinical leader steers. Opus
+// works from the synthesis to fill out the protocol across its dimensions,
+// asking focused, source-grounded questions and adapting to the director's
+// answers and redirections. It signals readyToCompile when the protocol is
+// sufficiently specified (the user can also choose to compile at any time).
 
 import { hasApiKey, runStructured } from "@/lib/anthropic";
 import { INTERVIEW_SCHEMA } from "@/lib/schemas";
 
 export const maxDuration = 120;
 
-const SYSTEM = `You are Cairn's protocol authoring interviewer, speaking with a medical director to codify their organization's own best practice.
-Ask about ONE decision fork at a time. Open by briefly citing what the uploaded sources actually said for each option (quote the evidence), surface the genuine tension, then ask the director to choose. Acknowledge prior decisions in one short clause when relevant. Be concise, specific, and grounded — never give medical advice or invent evidence. 2–4 sentences.`;
+const SYSTEM = `You are Cairn's protocol authoring partner, working with a medical director to define their organization's OWN computable protocol.
+You have a synthesis of their uploaded sources. Collaboratively shape a protocol spanning: diagnosis, inclusion/exclusion criteria, recommended work-up, preferred therapies, follow-up cadence, and monitoring.
+Conduct a natural, free-flowing conversation: ask ONE focused question at a time, grounded in what the sources say (cite briefly), and genuinely adapt to the director's answers — they may redirect, add constraints, or override the evidence; honor their choices (it's their care model). Track what's still undefined and steer toward it, but don't railroad. When the key dimensions are sufficiently specified — or the director signals they're done — set readyToCompile true and give a one-line summary of what you'll compile. Keep turns to 2–4 sentences. Never give medical advice; you operationalize their protocol.`;
 
-interface Option {
-  label: string;
-  sourceCitation?: string;
-  sourceQuote?: string;
+interface Msg {
+  role: "assistant" | "user";
+  content: string;
 }
 interface InterviewBody {
-  fork?: { id: string; question: string; tension?: string; options: Option[] };
-  priorAnswers?: { question: string; chosenLabel: string }[];
+  synthesis?: {
+    condition?: string;
+    summary?: string;
+    dimensions?: { dimension: string; summary: string }[];
+    discussionPoints?: { question: string; why: string }[];
+  };
+  messages?: Msg[];
 }
 
 export async function POST(request: Request) {
@@ -36,35 +42,39 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  if (!body.fork) {
-    return Response.json({ error: "Missing fork" }, { status: 400 });
-  }
 
-  const prior = (body.priorAnswers ?? [])
-    .map((a) => `- ${a.question} → chose: ${a.chosenLabel}`)
+  const s = body.synthesis ?? {};
+  const dims = (s.dimensions ?? [])
+    .map((d) => `- ${d.dimension}: ${d.summary}`)
     .join("\n");
-  const opts = body.fork.options
-    .map(
-      (o) =>
-        `- ${o.label}${o.sourceCitation ? ` [${o.sourceCitation}]` : ""}: "${o.sourceQuote ?? ""}"`,
-    )
+  const points = (s.discussionPoints ?? [])
+    .map((p) => `- ${p.question} (${p.why})`)
+    .join("\n");
+  const convo = (body.messages ?? [])
+    .map((m) => `${m.role === "assistant" ? "You" : "Director"}: ${m.content}`)
     .join("\n");
 
-  const userText = `Decision fork: ${body.fork.question}
-Tension: ${body.fork.tension ?? ""}
-Options grounded in the sources:
-${opts}
+  const userText = `Condition / service line: ${s.condition ?? "(infer)"}
+Source synthesis by dimension:
+${dims || "(none)"}
 
-${prior ? `Decisions already confirmed:\n${prior}\n` : ""}
-Write the next interview turn (the question to put to the director for this fork). Return JSON per schema.`;
+Discussion points discovered in the sources:
+${points || "(none)"}
+
+Conversation so far:
+${convo || "(none yet — open the interview with your first question)"}
+
+Produce the next assistant turn. Return JSON per schema.`;
 
   try {
-    const result = await runStructured<{ assistantMessage: string }>({
+    const result = await runStructured<{
+      assistantMessage: string;
+      readyToCompile: boolean;
+    }>({
       system: SYSTEM,
       content: [{ type: "text", text: userText }],
-      schemaName: "interview_turn",
       schema: INTERVIEW_SCHEMA,
-      maxTokens: 1200,
+      maxTokens: 1500,
       effort: "medium",
     });
     return Response.json(result);

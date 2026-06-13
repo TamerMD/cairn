@@ -24,6 +24,14 @@
   --color-slate: #3f5d7a;
   --color-slate-bg: #e6ecf2;
 
+  /* Action-type accents (assess / discuss / order / refer) + loud gap */
+  --color-gold: #936415;
+  --color-gold-bg: #f5e7cb;
+  --color-plum: #6c4a73;
+  --color-plum-bg: #efe5f1;
+  --color-flag: #b23522;
+  --color-flag-bg: #f6dcd5;
+
   /* Type */
   --font-display: var(--font-fraunces), Georgia, serif;
   --font-sans: var(--font-plex-sans), system-ui, sans-serif;

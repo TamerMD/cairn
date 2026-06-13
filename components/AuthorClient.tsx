@@ -1,42 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useProtocol } from "@/app/providers";
 import { SiteHeader } from "@/components/ui";
 import type { Protocol } from "@/lib/types";
 
 type Stage = "upload" | "review" | "interview" | "compiling" | "done";
+type Msg = { role: "assistant" | "user"; content: string };
 
-interface ForkOption {
-  label: string;
-  sourceCitation: string;
-  sourceQuote: string;
-}
-interface Fork {
-  id: string;
-  question: string;
-  tension: string;
-  recommendedLabel: string;
-  options: ForkOption[];
-}
-interface CandidateUnit {
-  title: string;
-  type: string;
-  rationale: string;
+interface Dimension {
+  dimension: string;
+  summary: string;
   sourceQuote: string;
   sourceLocator: string;
 }
-interface IngestResult {
-  sources: { name: string }[];
-  candidateUnits: CandidateUnit[];
-  forks: Fork[];
-}
-interface Decision {
-  forkId: string;
+interface DiscussionPoint {
   question: string;
-  chosenLabel: string;
-  options: ForkOption[];
+  why: string;
+}
+interface Synthesis {
+  condition: string;
+  summary: string;
+  sources: { name: string }[];
+  dimensions: Dimension[];
+  discussionPoints: DiscussionPoint[];
+}
+interface Coverage {
+  id: string;
+  eligible: boolean;
+  items: number;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -52,24 +45,30 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export default function AuthorClient() {
-  const { replaceProtocol, protocol } = useProtocol();
+  const { replaceProtocol } = useProtocol();
   const [stage, setStage] = useState<Stage>("upload");
   const [files, setFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [ingest, setIngest] = useState<IngestResult | null>(null);
+  // streaming console
   const [trace, setTrace] = useState("");
   const [phase, setPhase] = useState<"reading" | "drafting">("reading");
   const [discoveries, setDiscoveries] = useState<string[]>([]);
   const draftBuf = useRef("");
   const seen = useRef<Set<string>>(new Set());
-  const [forkIndex, setForkIndex] = useState(0);
-  const [decisions, setDecisions] = useState<Decision[]>([]);
-  const [turnMsg, setTurnMsg] = useState<string>("");
-  const [turnLoading, setTurnLoading] = useState(false);
+
+  const [synthesis, setSynthesis] = useState<Synthesis | null>(null);
+
+  // interview
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [turnBusy, setTurnBusy] = useState(false);
+  const [readyToCompile, setReadyToCompile] = useState(false);
+  const [input, setInput] = useState("");
+
   const [authored, setAuthored] = useState<Protocol | null>(null);
+  const [coverage, setCoverage] = useState<Coverage[]>([]);
 
   async function runIngest() {
     setBusy(true);
@@ -86,24 +85,20 @@ export default function AuthorClient() {
       const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pdfs, notes, condition: "PCOS" }),
+        body: JSON.stringify({ pdfs, notes }),
       });
-
-      // Non-streaming error (e.g. missing key) comes back as JSON.
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? "Ingestion failed");
+        throw new Error(data?.error ?? "Synthesis failed");
       }
-
       const reader = res.body.getReader();
-      const decoder = new TextDecoder();
+      const dec = new TextDecoder();
       let buf = "";
-      let result: IngestResult | null = null;
-
+      let result: Synthesis | null = null;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true });
+        buf += dec.decode(value, { stream: true });
         const parts = buf.split("\n\n");
         buf = parts.pop() ?? "";
         for (const part of parts) {
@@ -113,92 +108,71 @@ export default function AuthorClient() {
           if (evt.type === "thinking") setTrace((t) => t + evt.text);
           else if (evt.type === "phase") setPhase("drafting");
           else if (evt.type === "draft") {
-            // Surface structured items as their JSON strings complete.
             draftBuf.current += evt.text;
-            const re = /"(question|label|title)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+            const re = /"(dimension|question)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
             const found: string[] = [];
             let m: RegExpExecArray | null;
             while ((m = re.exec(draftBuf.current))) {
-              const key = m[1];
               const val = m[2].replace(/\\"/g, '"').replace(/\\n/g, " ").trim();
-              const tag = `${key}:${val}`;
+              const tag = `${m[1]}:${val}`;
               if (val && !seen.current.has(tag)) {
                 seen.current.add(tag);
-                const prefix =
-                  key === "question"
-                    ? "Decision fork"
-                    : key === "label"
-                      ? "Option"
-                      : "Candidate unit";
-                found.push(`${prefix} — ${val}`);
+                found.push(
+                  `${m[1] === "dimension" ? "Dimension" : "Discussion point"} — ${val}`,
+                );
               }
             }
             if (found.length) setDiscoveries((d) => [...d, ...found]);
           } else if (evt.type === "error") throw new Error(evt.error);
-          else if (evt.type === "result") result = evt.result as IngestResult;
+          else if (evt.type === "result") result = evt.result as Synthesis;
         }
       }
-
-      if (!result) throw new Error("No result returned");
-      setIngest(result);
+      if (!result) throw new Error("No synthesis returned");
+      setSynthesis(result);
       setStage("review");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ingestion failed");
+      setError(e instanceof Error ? e.message : "Synthesis failed");
     } finally {
       setBusy(false);
     }
   }
 
-  // Fetch the grounded interview turn whenever we land on a new fork.
-  const fetchedFor = useRef<string>("");
-  useEffect(() => {
-    if (stage !== "interview" || !ingest) return;
-    const fork = ingest.forks[forkIndex];
-    if (!fork || fetchedFor.current === fork.id) return;
-    fetchedFor.current = fork.id;
-    setTurnLoading(true);
-    setTurnMsg("");
-    fetch("/api/interview", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        fork,
-        priorAnswers: decisions.map((d) => ({
-          question: d.question,
-          chosenLabel: d.chosenLabel,
-        })),
-      }),
-    })
-      .then((r) => r.json())
-      .then((d) => setTurnMsg(d.assistantMessage ?? fork.question))
-      .catch(() => setTurnMsg(fork.question))
-      .finally(() => setTurnLoading(false));
-  }, [stage, forkIndex, ingest, decisions]);
+  async function interviewTurn(history: Msg[]) {
+    setTurnBusy(true);
+    try {
+      const res = await fetch("/api/interview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ synthesis, messages: history }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Interview failed");
+      setMessages((m) => [...m, { role: "assistant", content: data.assistantMessage }]);
+      setReadyToCompile(Boolean(data.readyToCompile));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Interview failed");
+    } finally {
+      setTurnBusy(false);
+    }
+  }
 
-  const chooseOption = useCallback(
-    (opt: ForkOption) => {
-      if (!ingest) return;
-      const fork = ingest.forks[forkIndex];
-      const next = [
-        ...decisions,
-        {
-          forkId: fork.id,
-          question: fork.question,
-          chosenLabel: opt.label,
-          options: fork.options,
-        },
-      ];
-      setDecisions(next);
-      if (forkIndex + 1 < ingest.forks.length) {
-        setForkIndex(forkIndex + 1);
-      } else {
-        void compile(next);
-      }
-    },
-    [ingest, forkIndex, decisions],
-  );
+  function beginInterview() {
+    setStage("interview");
+    setMessages([]);
+    setReadyToCompile(false);
+    void interviewTurn([]);
+  }
 
-  async function compile(finalDecisions: Decision[]) {
+  function sendMessage() {
+    const text = input.trim();
+    if (!text || turnBusy) return;
+    const next = [...messages, { role: "user" as const, content: text }];
+    setMessages(next);
+    setInput("");
+    void interviewTurn(next);
+  }
+
+  async function compile() {
     setStage("compiling");
     setError(null);
     try {
@@ -206,19 +180,20 @@ export default function AuthorClient() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          decisions: finalDecisions,
-          candidateUnits: ingest?.candidateUnits ?? [],
-          sources: ingest?.sources ?? [],
+          synthesis,
+          messages,
+          condition: synthesis?.condition,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Compile failed");
       replaceProtocol(data.protocol as Protocol);
       setAuthored(data.protocol as Protocol);
+      setCoverage(data.coverage ?? []);
       setStage("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Compile failed");
-      setStage("review");
+      setStage("interview");
     }
   }
 
@@ -231,19 +206,20 @@ export default function AuthorClient() {
             Authoring agent
           </p>
           <h1 className="font-display text-4xl text-ink">
-            Compose your protocol from the evidence
+            Define your protocol with Opus
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-            Opus reads your sources, surfaces the genuine decision forks, and
-            walks you through them. Your choices compile into structured,
-            versioned units with dual provenance.
+            Upload your sources. Opus synthesizes a draft across diagnosis,
+            eligibility, work-up, therapy, and follow-up, then works through it
+            with you in conversation. The result is a computable protocol that
+            runs on patient charts.
           </p>
         </div>
 
         <Steps stage={stage} />
 
         {error && (
-          <div className="mt-6 rounded-lg border border-amber/40 bg-amber-bg px-4 py-3 text-sm text-amber">
+          <div className="mt-6 rounded-lg border border-flag/40 bg-flag-bg px-4 py-3 text-sm text-flag">
             {error}
           </div>
         )}
@@ -254,58 +230,42 @@ export default function AuthorClient() {
             setFiles={setFiles}
             notes={notes}
             setNotes={setNotes}
-            busy={busy}
             onRun={runIngest}
           />
         )}
-
         {stage === "upload" && busy && (
-          <Ingesting
-            trace={trace}
-            phase={phase}
-            files={files}
-            discoveries={discoveries}
-          />
+          <Ingesting trace={trace} phase={phase} files={files} discoveries={discoveries} />
         )}
-
-        {stage === "review" && ingest && (
-          <Review ingest={ingest} onBegin={() => setStage("interview")} />
+        {stage === "review" && synthesis && (
+          <Review synthesis={synthesis} onBegin={beginInterview} />
         )}
-
-        {stage === "interview" && ingest && (
+        {stage === "interview" && (
           <Interview
-            fork={ingest.forks[forkIndex]}
-            index={forkIndex}
-            total={ingest.forks.length}
-            message={turnMsg}
-            loading={turnLoading}
-            onChoose={chooseOption}
+            messages={messages}
+            input={input}
+            setInput={setInput}
+            onSend={sendMessage}
+            turnBusy={turnBusy}
+            readyToCompile={readyToCompile}
+            onCompile={compile}
           />
         )}
-
-        {stage === "compiling" && (
-          <div className="mt-12 text-center">
-            <p className="animate-pulse font-display text-2xl text-ink">
-              Compiling structured units with dual provenance…
-            </p>
-          </div>
-        )}
-
+        {stage === "compiling" && <Compiling />}
         {stage === "done" && authored && (
-          <Done protocol={authored} decisions={decisions} version={protocol.version} />
+          <Done protocol={authored} coverage={coverage} />
         )}
       </main>
     </>
   );
 }
 
-// ── Steps indicator ────────────────────────────────────────────────────────
+// ── Steps ─────────────────────────────────────────────────────────────────────
 
 function Steps({ stage }: { stage: Stage }) {
   const order: Stage[] = ["upload", "review", "interview", "compiling", "done"];
   const labels: Record<Stage, string> = {
-    upload: "Ingest",
-    review: "Forks",
+    upload: "Synthesize",
+    review: "Draft",
     interview: "Interview",
     compiling: "Compile",
     done: "Live",
@@ -317,9 +277,7 @@ function Steps({ stage }: { stage: Stage }) {
         <span
           key={s}
           className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] ${
-            i <= at
-              ? "bg-stone text-paper"
-              : "border border-line text-ink-muted"
+            i <= at ? "bg-stone text-paper" : "border border-line text-ink-muted"
           }`}
         >
           {labels[s]}
@@ -329,21 +287,19 @@ function Steps({ stage }: { stage: Stage }) {
   );
 }
 
-// ── Upload ─────────────────────────────────────────────────────────────────
+// ── Upload ─────────────────────────────────────────────────────────────────────
 
 function Upload({
   files,
   setFiles,
   notes,
   setNotes,
-  busy,
   onRun,
 }: {
   files: File[];
   setFiles: (f: File[]) => void;
   notes: string;
   setNotes: (s: string) => void;
-  busy: boolean;
   onRun: () => void;
 }) {
   return (
@@ -354,20 +310,20 @@ function Upload({
           accept="application/pdf"
           multiple
           className="hidden"
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          onChange={(e) =>
+            setFiles([...files, ...Array.from(e.target.files ?? [])])
+          }
         />
-        <p className="font-display text-xl text-ink">
-          Drop source PDFs here
-        </p>
+        <p className="font-display text-xl text-ink">Drop source PDFs here</p>
         <p className="mt-1 text-sm text-ink-muted">
-          Society guidelines, research papers, your existing protocol. Opus reads
-          them natively. Keep each focused (under ~3&nbsp;MB).
+          Upload several — society guidelines, papers, your existing protocol.
+          Opus reads them natively. Keep each focused (under ~3&nbsp;MB).
         </p>
         {files.length > 0 && (
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {files.map((f) => (
+            {files.map((f, i) => (
               <span
-                key={f.name}
+                key={i}
                 className="rounded bg-stone-bg px-2 py-1 font-mono text-[11px] text-stone"
               >
                 {f.name}
@@ -378,7 +334,7 @@ function Upload({
       </label>
 
       <div>
-        <label className="mb-2 block font-mono text-[11px] uppercase tracking-[0.16em] text-stone-soft">
+        <label className="mb-2 block text-sm font-medium text-ink-muted">
           Or paste source notes (optional)
         </label>
         <textarea
@@ -391,10 +347,10 @@ function Upload({
 
       <button
         onClick={onRun}
-        disabled={busy || (files.length === 0 && notes.trim() === "")}
+        disabled={files.length === 0 && notes.trim() === ""}
         className="w-full rounded-full bg-stone py-3.5 text-sm font-medium text-paper transition-colors hover:bg-stone-deep disabled:opacity-50"
       >
-        {busy ? "Reading the sources with Opus…" : "Synthesize sources →"}
+        Synthesize sources →
       </button>
     </div>
   );
@@ -421,10 +377,10 @@ function Ingesting({
   return (
     <div className="mt-8">
       <div className="mb-3 flex items-center justify-between">
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-stone-soft">
+        <div className="text-sm font-semibold text-stone">
           {phase === "reading"
             ? "Opus is reading your sources"
-            : `Opus is drafting structured units · ${discoveries.length} surfaced`}
+            : `Opus is drafting the protocol · ${discoveries.length} elements`}
         </div>
         <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-muted">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-stone" />
@@ -441,13 +397,11 @@ function Ingesting({
             {trace}
           </p>
         )}
-
         {discoveries.length === 0 && !trace && (
           <p className="font-mono text-[13px] text-paper/70">
             Establishing context from the sources…
           </p>
         )}
-
         <ul className="space-y-1.5">
           {discoveries.map((d, i) => {
             const [tag, ...rest] = d.split(" — ");
@@ -458,13 +412,9 @@ function Ingesting({
                 style={{ animation: "fadeIn 280ms ease-out" }}
               >
                 <span className="text-stone-soft">
-                  {tag === "Decision fork"
-                    ? "◆"
-                    : tag === "Option"
-                      ? "  ·"
-                      : "▸"}{" "}
+                  {tag === "Dimension" ? "◆ " : "› "}
                 </span>
-                <span className="uppercase tracking-[0.1em] text-stone-soft/70 text-[10px]">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-stone-soft/70">
                   {tag}
                 </span>{" "}
                 {rest.join(" — ")}
@@ -472,20 +422,20 @@ function Ingesting({
             );
           })}
         </ul>
-
         <span className="mt-1 inline-block h-4 w-[7px] translate-y-0.5 animate-pulse bg-paper/70" />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {files.map((f) => (
-          <span
-            key={f.name}
-            className="rounded bg-stone-bg px-2 py-1 font-mono text-[11px] text-stone"
-          >
-            {f.name}
-          </span>
-        ))}
-        {files.length === 0 && (
+        {files.length > 0 ? (
+          files.map((f, i) => (
+            <span
+              key={i}
+              className="rounded bg-stone-bg px-2 py-1 font-mono text-[11px] text-stone"
+            >
+              {f.name}
+            </span>
+          ))
+        ) : (
           <span className="font-mono text-[11px] text-ink-muted">
             reading pasted notes
           </span>
@@ -495,126 +445,224 @@ function Ingesting({
   );
 }
 
-// ── Review (forks surfaced) ──────────────────────────────────────────────────
+// ── Review (synthesis) ───────────────────────────────────────────────────────
+
+const DIM_LABEL: Record<string, string> = {
+  diagnosis: "Diagnosis",
+  inclusion: "Inclusion",
+  exclusion: "Exclusion",
+  workup: "Work-up",
+  preferredTherapy: "Preferred therapy",
+  followUp: "Follow-up",
+  monitoring: "Monitoring",
+  counseling: "Counseling",
+  other: "Other",
+};
 
 function Review({
-  ingest,
+  synthesis,
   onBegin,
 }: {
-  ingest: IngestResult;
+  synthesis: Synthesis;
   onBegin: () => void;
 }) {
   return (
     <div className="mt-8 space-y-8">
       <div>
-        <h2 className="font-display text-2xl text-ink">
-          {ingest.forks.length} decision forks surfaced
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          From {ingest.sources.map((s) => s.name).join(", ") || "your sources"} ·{" "}
-          {ingest.candidateUnits.length} candidate units extracted
+        <div className="mb-1 flex items-baseline gap-3">
+          <h2 className="font-display text-2xl text-ink">{synthesis.condition}</h2>
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-soft">
+            draft synthesis
+          </span>
+        </div>
+        <p className="text-sm leading-relaxed text-ink-muted">{synthesis.summary}</p>
+        <p className="mt-1 font-mono text-[11px] text-stone-soft">
+          {synthesis.sources.map((s) => s.name).join(" · ")}
         </p>
       </div>
 
-      <div className="space-y-4">
-        {ingest.forks.map((f) => (
-          <div key={f.id} className="rounded-xl border border-line bg-card p-5">
-            <p className="font-display text-lg text-ink">{f.question}</p>
-            <p className="mt-1 text-sm text-ink-muted">{f.tension}</p>
-            <div className="mt-3 space-y-2">
-              {f.options.map((o) => (
-                <div
-                  key={o.label}
-                  className="border-l-2 border-stone-soft/50 pl-3"
-                >
-                  <p className="text-sm font-medium text-ink">
-                    {o.label}
-                    {o.label === f.recommendedLabel && (
-                      <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.12em] text-stone-soft">
-                        evidence-leaning
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-[12px] leading-snug text-ink-muted">
-                    <span className="font-display italic text-ink/80">
-                      &ldquo;{o.sourceQuote}&rdquo;
-                    </span>{" "}
-                    <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-stone-soft">
-                      — {o.sourceCitation}
-                    </span>
-                  </p>
-                </div>
-              ))}
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-ink">Dimensions covered</h3>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {synthesis.dimensions.map((d, i) => (
+            <div key={i} className="rounded-xl border border-line bg-card p-4">
+              <span className="inline-flex rounded-full bg-stone-bg px-2 py-0.5 text-[11px] font-medium text-stone">
+                {DIM_LABEL[d.dimension] ?? d.dimension}
+              </span>
+              <p className="mt-2 text-sm text-ink">{d.summary}</p>
+              <p className="mt-1.5 text-[12px] italic leading-snug text-ink-muted">
+                &ldquo;{d.sourceQuote}&rdquo;
+                <span className="ml-1 font-mono text-[10px] not-italic text-stone-soft">
+                  — {d.sourceLocator}
+                </span>
+              </p>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
+
+      {synthesis.discussionPoints.length > 0 && (
+        <div>
+          <h3 className="mb-3 text-sm font-semibold text-ink">
+            Discussion points to settle
+          </h3>
+          <ul className="space-y-2">
+            {synthesis.discussionPoints.map((p, i) => (
+              <li
+                key={i}
+                className="rounded-xl border border-line bg-card p-4 text-sm"
+              >
+                <span className="text-ink">{p.question}</span>
+                <span className="mt-0.5 block text-[12px] text-ink-muted">
+                  {p.why}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <button
         onClick={onBegin}
         className="w-full rounded-full bg-stone py-3.5 text-sm font-medium text-paper transition-colors hover:bg-stone-deep"
       >
-        Begin the grounded interview →
+        Work through it with Opus →
       </button>
     </div>
   );
 }
 
-// ── Interview ────────────────────────────────────────────────────────────────
+// ── Interview (free-flowing chat) ────────────────────────────────────────────
 
 function Interview({
-  fork,
-  index,
-  total,
-  message,
-  loading,
-  onChoose,
+  messages,
+  input,
+  setInput,
+  onSend,
+  turnBusy,
+  readyToCompile,
+  onCompile,
 }: {
-  fork: Fork;
-  index: number;
-  total: number;
-  message: string;
-  loading: boolean;
-  onChoose: (o: ForkOption) => void;
+  messages: Msg[];
+  input: string;
+  setInput: (s: string) => void;
+  onSend: () => void;
+  turnBusy: boolean;
+  readyToCompile: boolean;
+  onCompile: () => void;
 }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, turnBusy]);
+
   return (
     <div className="mt-8">
-      <div className="mb-4 font-mono text-[11px] uppercase tracking-[0.16em] text-stone-soft">
-        Decision {index + 1} of {total}
+      <div className="h-[420px] overflow-y-auto rounded-2xl border border-line bg-card p-5">
+        <div className="space-y-4">
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={m.role === "assistant" ? "" : "flex justify-end"}
+            >
+              <div
+                className={
+                  m.role === "assistant"
+                    ? "max-w-[85%] text-[15px] leading-relaxed text-ink"
+                    : "max-w-[85%] rounded-2xl rounded-br-sm bg-stone px-4 py-2 text-[15px] leading-relaxed text-paper"
+                }
+              >
+                {m.role === "assistant" && (
+                  <span className="mb-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-stone-soft">
+                    Cairn
+                  </span>
+                )}
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {turnBusy && (
+            <p className="animate-pulse text-[15px] text-ink-muted">Cairn is thinking…</p>
+          )}
+          <div ref={endRef} />
+        </div>
       </div>
 
-      <div className="rounded-2xl border border-line bg-card p-6">
-        {loading ? (
-          <p className="animate-pulse font-display text-lg text-ink-muted">
-            Opus is grounding this question in your sources…
-          </p>
-        ) : (
-          <p className="font-display text-xl leading-relaxed text-ink">
-            {message}
-          </p>
-        )}
+      {readyToCompile && (
+        <p className="mt-3 text-center text-sm text-moss">
+          Opus has enough to compile — or keep refining.
+        </p>
+      )}
+
+      <div className="mt-3 flex items-end gap-2">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          rows={2}
+          placeholder="Answer, steer, or add a constraint… (Enter to send)"
+          className="flex-1 resize-none rounded-xl border border-line bg-card p-3 text-sm text-ink outline-none focus:border-stone-soft"
+        />
+        <button
+          onClick={onSend}
+          disabled={turnBusy || !input.trim()}
+          className="rounded-full border border-line-strong px-5 py-3 text-sm font-medium text-ink transition-colors hover:border-stone hover:text-stone disabled:opacity-40"
+        >
+          Send
+        </button>
       </div>
 
-      <div className="mt-4 space-y-3">
-        {fork.options.map((o) => (
-          <button
-            key={o.label}
-            disabled={loading}
-            onClick={() => onChoose(o)}
-            className="group block w-full rounded-xl border border-line bg-card p-4 text-left transition-colors hover:border-stone disabled:opacity-50"
+      <button
+        onClick={onCompile}
+        className={`mt-3 w-full rounded-full py-3.5 text-sm font-medium transition-colors ${
+          readyToCompile
+            ? "bg-stone text-paper hover:bg-stone-deep"
+            : "border border-line-strong text-ink hover:border-stone hover:text-stone"
+        }`}
+      >
+        Compile the protocol →
+      </button>
+    </div>
+  );
+}
+
+// ── Compiling (parallel fan-out) ─────────────────────────────────────────────
+
+function Compiling() {
+  const groups = [
+    "Eligibility & exclusions",
+    "Recommended work-up",
+    "Preferred therapy",
+    "Follow-up & monitoring",
+    "Note scaffold",
+  ];
+  return (
+    <div className="mt-12">
+      <p className="text-center font-display text-2xl text-ink">
+        Compiling computable units
+      </p>
+      <p className="mt-2 text-center text-sm text-ink-muted">
+        Authoring triggers across dimensions in parallel — each grounded in your
+        sources and decisions.
+      </p>
+      <div className="mx-auto mt-8 max-w-md space-y-2">
+        {groups.map((g, i) => (
+          <div
+            key={g}
+            className="flex items-center gap-3 rounded-lg border border-line bg-card px-4 py-2.5"
+            style={{ animation: `fadeIn 320ms ease-out ${i * 90}ms both` }}
           >
-            <p className="font-display text-lg text-ink group-hover:text-stone">
-              {o.label}
-            </p>
-            <p className="mt-1 text-[12px] leading-snug text-ink-muted">
-              <span className="font-display italic text-ink/80">
-                &ldquo;{o.sourceQuote}&rdquo;
-              </span>{" "}
-              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-stone-soft">
-                — {o.sourceCitation}
-              </span>
-            </p>
-          </button>
+            <span className="h-2 w-2 animate-pulse rounded-full bg-stone" />
+            <span className="text-[14px] text-ink">{g}</span>
+            <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-stone-soft">
+              authoring…
+            </span>
+          </div>
         ))}
       </div>
     </div>
@@ -625,36 +673,40 @@ function Interview({
 
 function Done({
   protocol,
-  decisions,
-  version,
+  coverage,
 }: {
   protocol: Protocol;
-  decisions: Decision[];
-  version: number;
+  coverage: Coverage[];
 }) {
+  const byDim = protocol.units.reduce<Record<string, number>>((acc, u) => {
+    const k = u.dimension ?? u.type;
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {});
   return (
     <div className="mt-10 space-y-6">
       <div className="rounded-2xl border border-moss/40 bg-moss-bg p-6">
         <h2 className="font-display text-2xl text-ink">
-          Protocol compiled & live
+          {protocol.condition} protocol compiled & live
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
-          {protocol.units.length} structured units, each carrying its source
-          citation and the org decision that selected it. Now driving the point
-          of care at version {protocol.version}{" "}
-          {version !== protocol.version ? `(was v${version})` : ""}.
+          {protocol.units.length} computable units across{" "}
+          {Object.keys(byDim).length} dimensions, each with its source citation
+          and the org decision behind it — now running on patient charts.
         </p>
       </div>
 
       <div className="rounded-2xl border border-line bg-card p-6">
-        <h3 className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-stone-soft">
-          Decisions confirmed
+        <h3 className="mb-3 text-sm font-semibold text-ink">
+          Runs on the current charts
         </h3>
-        <ul className="space-y-2">
-          {decisions.map((d) => (
-            <li key={d.forkId} className="text-sm text-ink-muted">
-              {d.question}{" "}
-              <span className="font-medium text-stone">→ {d.chosenLabel}</span>
+        <ul className="space-y-1.5">
+          {coverage.map((c) => (
+            <li key={c.id} className="flex justify-between text-sm">
+              <span className="text-ink">{c.id}</span>
+              <span className={c.eligible ? "text-stone" : "text-ink-muted"}>
+                {c.eligible ? `${c.items} items` : "not eligible"}
+              </span>
             </li>
           ))}
         </ul>

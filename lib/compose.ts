@@ -26,19 +26,31 @@ function approved(units: ProtocolUnit[]): ProtocolUnit[] {
   return units.filter((u) => u.status === "approved");
 }
 
-/** A patient is in the protocol's cohort if every eligibility unit fires. */
+/**
+ * A patient is in the cohort if every `include` eligibility gate fires AND no
+ * `exclude` gate fires. (Default gate is 'include'.)
+ */
 function evaluateEligibility(
   protocol: Protocol,
   patient: Patient,
   asOf: string,
 ): { eligible: boolean; facts: TriggeringFact[] } {
   const gates = approved(protocol.units).filter((u) => u.type === "eligibility");
-  if (gates.length === 0) return { eligible: false, facts: [] };
+  const includes = gates.filter((g) => (g.gate ?? "include") === "include");
+  const excludes = gates.filter((g) => g.gate === "exclude");
+  if (includes.length === 0) return { eligible: false, facts: [] };
+
   const facts: TriggeringFact[] = [];
-  for (const g of gates) {
+  for (const g of includes) {
     const r = matchUnit(g, patient, asOf);
     if (!r.matched) return { eligible: false, facts: [] };
     facts.push(...r.facts);
+  }
+  // Any matching exclusion gate disqualifies the patient.
+  for (const g of excludes) {
+    if (matchUnit(g, patient, asOf).matched) {
+      return { eligible: false, facts: [] };
+    }
   }
   // de-dupe facts by fact+detail
   const seen = new Set<string>();

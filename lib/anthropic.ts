@@ -7,6 +7,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 export const MODEL = "claude-opus-4-8";
+/** Faster model for mechanical transformation steps (e.g. JSON compilation). */
+export const FAST_MODEL = "claude-sonnet-4-6";
 
 export function hasApiKey(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
@@ -40,16 +42,17 @@ type Effort = "low" | "medium" | "high" | "max";
 export async function runStructured<T>(opts: {
   system: string;
   content: Anthropic.ContentBlockParam[];
-  schemaName: string;
+  schemaName?: string;
   schema: Record<string, unknown>;
   maxTokens?: number;
   effort?: Effort;
+  thinking?: "adaptive" | "disabled";
 }): Promise<T> {
   const c = getClient();
   const response = await c.messages.create({
     model: MODEL,
     max_tokens: opts.maxTokens ?? 16000,
-    thinking: { type: "adaptive" },
+    thinking: { type: opts.thinking ?? "adaptive" },
     output_config: {
       effort: opts.effort ?? "high",
       format: {
@@ -70,6 +73,48 @@ export async function runStructured<T>(opts: {
     throw new Error("Model returned no structured output");
   }
   return JSON.parse(text) as T;
+}
+
+/** Strip ```json fences / prose around a JSON object or array. */
+function extractJson(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) return fenced[1].trim();
+  const start = text.search(/[[{]/);
+  const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (start >= 0 && end > start) return text.slice(start, end + 1);
+  return text.trim();
+}
+
+/**
+ * Plain JSON generation (NO grammar-constrained structured output). Much faster
+ * than runStructured for large/deeply-nested shapes — constrained decoding gets
+ * very slow on big schemas. Pair with a validating builder for safety. Caller's
+ * prompt must describe the JSON shape; we parse fenced/bare JSON from the reply.
+ */
+export async function runJson<T>(opts: {
+  system: string;
+  content: Anthropic.ContentBlockParam[];
+  maxTokens?: number;
+  effort?: Effort;
+  thinking?: "adaptive" | "disabled";
+  model?: string;
+}): Promise<T> {
+  const c = getClient();
+  const response = await c.messages.create({
+    model: opts.model ?? MODEL,
+    max_tokens: opts.maxTokens ?? 16000,
+    thinking: { type: opts.thinking ?? "disabled" },
+    output_config: { effort: opts.effort ?? "low" },
+    system: opts.system,
+    messages: [{ role: "user", content: opts.content }],
+  } as Anthropic.MessageCreateParamsNonStreaming);
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  if (!text.trim()) throw new Error("Model returned no output");
+  return JSON.parse(extractJson(text)) as T;
 }
 
 /**

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import type {
   ActionStatus,
   PlanKind,
@@ -27,19 +30,18 @@ export function SiteHeader({
     href: string,
     label: string,
     key: "author" | "care" | "protocol",
-  ) =>
-    (
-      <Link
-        href={href}
-        className={`transition-colors hover:text-stone ${
-          active === key ? "text-stone" : "text-ink-muted"
-        }`}
-      >
-        {label}
-      </Link>
-    );
+  ) => (
+    <Link
+      href={href}
+      className={`transition-colors hover:text-stone ${
+        active === key ? "text-stone" : "text-ink-muted"
+      }`}
+    >
+      {label}
+    </Link>
+  );
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-line bg-paper/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1180px] items-center justify-between px-6 py-4">
         <Link href="/" className="flex items-center gap-3">
           <CairnMark className="h-6 w-6 text-stone" />
@@ -57,28 +59,36 @@ export function SiteHeader({
   );
 }
 
-const KIND_META: Record<PlanKind, { label: string; cls: string }> = {
-  assess: { label: "Assess", cls: "bg-slate-bg text-slate" },
-  discuss: { label: "Discuss", cls: "bg-stone-bg text-stone" },
-  order: { label: "Order", cls: "bg-paper-deep text-ink-muted" },
-  refer: { label: "Refer", cls: "bg-paper-deep text-ink-muted" },
+// Color-coded action types so the eye triages by hue, not by reading labels.
+const KIND_META: Record<PlanKind, { label: string; cls: string; dot: string }> = {
+  assess: { label: "Assess", cls: "bg-slate-bg text-slate", dot: "bg-slate" },
+  discuss: { label: "Discuss", cls: "bg-stone-bg text-stone", dot: "bg-stone" },
+  order: { label: "Order", cls: "bg-gold-bg text-gold", dot: "bg-gold" },
+  refer: { label: "Refer", cls: "bg-plum-bg text-plum", dot: "bg-plum" },
 };
+
+export function kindDot(kind: PlanKind): string {
+  return KIND_META[kind].dot;
+}
 
 export function KindTag({ kind }: { kind: PlanKind }) {
   const m = KIND_META[kind];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] ${m.cls}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${m.cls}`}
     >
       {m.label}
     </span>
   );
 }
 
-const STATUS_META: Record<ActionStatus, { label: string; cls: string; dot: string }> = {
+const STATUS_META: Record<
+  ActionStatus,
+  { label: string; cls: string; dot: string }
+> = {
   addressed: { label: "Addressed", cls: "bg-moss-bg text-moss", dot: "bg-moss" },
-  gap: { label: "Gap", cls: "bg-amber-bg text-amber", dot: "bg-amber" },
-  staged: { label: "Staged for sign-off", cls: "bg-slate-bg text-slate", dot: "bg-slate" },
+  gap: { label: "Gap", cls: "bg-flag-bg text-flag", dot: "bg-flag" },
+  staged: { label: "Staged", cls: "bg-slate-bg text-slate", dot: "bg-slate" },
   new: { label: "New", cls: "bg-stone-bg text-stone", dot: "bg-stone" },
 };
 
@@ -86,7 +96,7 @@ export function StatusBadge({ status }: { status: ActionStatus }) {
   const m = STATUS_META[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] ${m.cls}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${m.cls}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
       {m.label}
@@ -94,8 +104,20 @@ export function StatusBadge({ status }: { status: ActionStatus }) {
   );
 }
 
-/** Dual-provenance display: the patient facts that triggered it + the source
- *  the evidence came from + (optionally) the org decision that selected it. */
+function FactChip({ fact }: { fact: TriggeringFact }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-paper-deep px-1.5 py-0.5 font-mono text-[11px] text-ink">
+      <span className="text-ink-muted">{fact.label}:</span> {fact.detail}
+    </span>
+  );
+}
+
+/**
+ * Progressive dual provenance. Shows only the *distinguishing* triggers inline
+ * (the universal problem-list fact is dropped — it explains nothing); the source
+ * quote and org decision sit behind a "Why?" toggle so they're one tap away
+ * rather than always-on wallpaper.
+ */
 export function Provenance({
   facts,
   sourceRef,
@@ -105,43 +127,47 @@ export function Provenance({
   sourceRef?: SourceRef;
   decision?: { question: string; chosen: string };
 }) {
+  const [open, setOpen] = useState(false);
+  const distinguishing = (facts ?? []).filter((f) => f.fact !== "problems");
+  const hasWhy = Boolean((sourceRef && sourceRef.quote) || decision);
+
+  if (distinguishing.length === 0 && !hasWhy) return null;
+
   return (
-    <div className="mt-3 space-y-2.5 border-l-2 border-stone-soft/50 pl-3.5">
-      {facts && facts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-muted">
-            Triggered by
-          </span>
-          {facts.map((f, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1 rounded bg-stone-bg px-1.5 py-0.5 font-mono text-[11px] text-stone"
-            >
-              <span className="opacity-60">{f.label}:</span> {f.detail}
-            </span>
-          ))}
-        </div>
-      )}
-      {sourceRef && (
-        <div className="text-[12px] leading-snug text-ink-muted">
-          {sourceRef.quote && (
-            <span className="font-display italic text-ink/80">
-              &ldquo;{sourceRef.quote}&rdquo;{" "}
-            </span>
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {distinguishing.map((f, i) => (
+          <FactChip key={i} fact={f} />
+        ))}
+        {hasWhy && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="rounded text-[11px] font-medium text-stone-soft underline-offset-2 hover:text-stone hover:underline"
+          >
+            {open ? "Hide source" : "Why?"}
+          </button>
+        )}
+      </div>
+      {open && hasWhy && (
+        <div className="mt-2 space-y-1.5 border-l-2 border-stone-soft/40 pl-3">
+          {sourceRef && sourceRef.quote && (
+            <p className="text-[12px] leading-snug text-ink-muted">
+              <span className="font-display italic text-ink/80">
+                &ldquo;{sourceRef.quote}&rdquo;
+              </span>{" "}
+              <span className="font-mono text-[10px] text-stone-soft">
+                — {sourceRef.source}
+                {sourceRef.locator ? ` · ${sourceRef.locator}` : ""}
+              </span>
+            </p>
           )}
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-stone-soft">
-            — {sourceRef.source}
-            {sourceRef.locator ? ` · ${sourceRef.locator}` : ""}
-          </span>
-        </div>
-      )}
-      {decision && (
-        <div className="font-mono text-[11px] text-ink-muted">
-          <span className="uppercase tracking-[0.12em] text-stone-soft">
-            Org decision ·{" "}
-          </span>
-          {decision.question}{" "}
-          <span className="text-stone">→ {decision.chosen}</span>
+          {decision && (
+            <p className="text-[12px] text-ink-muted">
+              <span className="font-medium text-stone-soft">Org decision · </span>
+              {decision.question}{" "}
+              <span className="text-stone">→ {decision.chosen}</span>
+            </p>
+          )}
         </div>
       )}
     </div>

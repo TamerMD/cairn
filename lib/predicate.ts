@@ -103,6 +103,12 @@ export function evaluateCondition(
     if (hit) return { matched: true, fact: { fact: cond.fact, label, detail: hit } };
     return { matched: false };
   }
+  if (arr && cond.op === "excludes") {
+    const needle = String(cond.value).toLowerCase();
+    const hit = arr.find((x) => x.toLowerCase().includes(needle));
+    // An exclusion criterion is satisfied when the value is absent.
+    return hit ? { matched: false } : { matched: true };
+  }
 
   // Lab / vital facts
   const labMatch = cond.fact.match(/^(lab|vital):(.+)$/);

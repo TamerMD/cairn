@@ -1,13 +1,33 @@
-// ── JSON schemas + compile skeleton ───────────────────────────────────────────
-// Schemas are structured-output compatible: every object has
-// additionalProperties:false and there are no min/max/length constraints.
-// The compile step keeps triggers/types/planKind canonical (deterministic
-// matching) while Opus authors content, rationale, and grounded provenance.
+// ── JSON schemas + protocol compiler ─────────────────────────────────────────
+// Opus authors the protocol with autonomy: it synthesizes across dimensions,
+// runs a free-flowing interview, then compiles to COMPUTABLE units whose
+// triggers are real predicates over the patient-chart vocabulary. Schemas use
+// only primitives / enums / arrays (all required) so structured output is
+// reliable; the compiler validates and repairs into our Predicate model.
 
-import { PCOS_FORKS } from "@/data/pcos-forks";
-import { loadSeedProtocol } from "@/lib/store";
-import type { Decision, Protocol, ProtocolUnit } from "@/lib/types";
+import { loadPatients } from "@/lib/store";
+import type {
+  Condition,
+  Decision,
+  PlanKind,
+  Predicate,
+  PredicateOp,
+  Protocol,
+  ProtocolUnit,
+  UnitType,
+} from "@/lib/types";
 
+const DIMENSIONS = [
+  "diagnosis",
+  "inclusion",
+  "exclusion",
+  "workup",
+  "preferredTherapy",
+  "followUp",
+  "monitoring",
+  "counseling",
+  "other",
+];
 const UNIT_TYPES = [
   "eligibility",
   "order",
@@ -15,11 +35,28 @@ const UNIT_TYPES = [
   "noteSection",
   "followUp",
 ];
+const PLAN_KINDS = ["assess", "discuss", "order", "refer", "none"];
+const OPS = [
+  "includes",
+  "excludes",
+  "equals",
+  "gt",
+  "lt",
+  "gte",
+  "lte",
+  "between",
+  "exists",
+  "missing",
+];
 
-export const INGEST_SCHEMA = {
+// ── Ingest: synthesis across dimensions + discovered discussion points ────────
+
+export const SYNTHESIS_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    condition: { type: "string" },
+    summary: { type: "string" },
     sources: {
       type: "array",
       items: {
@@ -29,22 +66,110 @@ export const INGEST_SCHEMA = {
         required: ["name"],
       },
     },
-    candidateUnits: {
+    dimensions: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          title: { type: "string" },
-          type: { type: "string", enum: UNIT_TYPES },
-          rationale: { type: "string" },
+          dimension: { type: "string", enum: DIMENSIONS },
+          summary: { type: "string" },
           sourceQuote: { type: "string" },
           sourceLocator: { type: "string" },
         },
-        required: ["title", "type", "rationale", "sourceQuote", "sourceLocator"],
+        required: ["dimension", "summary", "sourceQuote", "sourceLocator"],
       },
     },
-    forks: {
+    discussionPoints: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { question: { type: "string" }, why: { type: "string" } },
+        required: ["question", "why"],
+      },
+    },
+  },
+  required: ["condition", "summary", "sources", "dimensions", "discussionPoints"],
+} as const;
+
+// ── Interview: free-flowing, model-driven, user-steered ───────────────────────
+
+export const INTERVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    assistantMessage: { type: "string" },
+    readyToCompile: { type: "boolean" },
+  },
+  required: ["assistantMessage", "readyToCompile"],
+} as const;
+
+// ── Compile: full computable units with Opus-authored triggers ────────────────
+
+const CONDITION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    fact: { type: "string" },
+    op: { type: "string", enum: OPS },
+    value: { type: "string" },
+    withinDays: { type: "number" },
+    label: { type: "string" },
+  },
+  required: ["fact", "op", "value", "withinDays", "label"],
+};
+
+export const COMPILE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    condition: { type: "string" },
+    units: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          type: { type: "string", enum: UNIT_TYPES },
+          gate: { type: "string", enum: ["include", "exclude", "none"] },
+          planKind: { type: "string", enum: PLAN_KINDS },
+          dimension: { type: "string", enum: DIMENSIONS },
+          content: { type: "string" },
+          rationale: { type: "string" },
+          noteSectionKey: { type: "string" },
+          whenAll: { type: "array", items: CONDITION_SCHEMA },
+          whenAny: { type: "array", items: CONDITION_SCHEMA },
+          sourceRef: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              source: { type: "string" },
+              locator: { type: "string" },
+              quote: { type: "string" },
+            },
+            required: ["source", "locator", "quote"],
+          },
+          decisionRef: { type: "string" },
+        },
+        required: [
+          "id",
+          "type",
+          "gate",
+          "planKind",
+          "dimension",
+          "content",
+          "rationale",
+          "noteSectionKey",
+          "whenAll",
+          "whenAny",
+          "sourceRef",
+          "decisionRef",
+        ],
+      },
+    },
+    decisions: {
       type: "array",
       items: {
         type: "object",
@@ -52,9 +177,8 @@ export const INGEST_SCHEMA = {
         properties: {
           id: { type: "string" },
           question: { type: "string" },
-          tension: { type: "string" },
-          recommendedLabel: { type: "string" },
-          options: {
+          chosen: { type: "string" },
+          optionsConsidered: {
             type: "array",
             items: {
               type: "object",
@@ -68,19 +192,14 @@ export const INGEST_SCHEMA = {
             },
           },
         },
-        required: ["id", "question", "tension", "options", "recommendedLabel"],
+        required: ["id", "question", "chosen", "optionsConsidered"],
       },
     },
   },
-  required: ["sources", "candidateUnits", "forks"],
+  required: ["condition", "units", "decisions"],
 } as const;
 
-export const INTERVIEW_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: { assistantMessage: { type: "string" } },
-  required: ["assistantMessage"],
-} as const;
+// ── Note + reconciliation (post-capture) ─────────────────────────────────────
 
 export const NOTE_SCHEMA = {
   type: "object",
@@ -151,148 +270,222 @@ export const NOTE_SCHEMA = {
   required: ["generatedNote", "addressedExtraction"],
 } as const;
 
-export const COMPILE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    units: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          id: { type: "string" },
-          rationale: { type: "string" },
-          sourceRef: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              source: { type: "string" },
-              locator: { type: "string" },
-              quote: { type: "string" },
-            },
-            required: ["source", "locator", "quote"],
-          },
-        },
-        required: ["id", "rationale", "sourceRef"],
-      },
-    },
-  },
-  required: ["units"],
-} as const;
+// Per-unit shape, shared by the fan-out group calls.
+export const UNIT_JSON_SHAPE = `Each unit:
+{
+  "id": "kebab-case-id",
+  "type": "eligibility | order | captureField | noteSection | followUp",
+  "gate": "include | exclude | none",   // eligibility only; else "none"
+  "planKind": "assess | discuss | order | refer | none",
+  "dimension": "diagnosis | inclusion | exclusion | workup | preferredTherapy | followUp | monitoring | counseling | other",
+  "content": "short clinician-facing text",
+  "rationale": "one short sentence",
+  "noteSectionKey": "section title (noteSection only, else \\"\\")",
+  "whenAll": [ { "fact": "problems", "op": "includes", "value": "PCOS", "withinDays": 0, "label": "Problem list" } ],
+  "whenAny": [],
+  "sourceRef": { "source": "string", "locator": "string", "quote": "string" },
+  "decisionRef": "decision id or \\"\\""
+}
+Ops: includes/excludes (array facts: problems, goals, meds), equals (sex or numbers), gt/lt/gte/lte (numbers), between (value "18,45"), exists/missing (lab:/vital:, optional withinDays; value ""). Always include withinDays (0 if none) and label. Triggers must use the chart vocabulary so units fire on real charts.`;
 
-// ── Decision → protocol variants ──────────────────────────────────────────────
+// Human-readable JSON shape for the (fast, non-grammar) compile call.
+export const COMPILE_JSON_SHAPE = `{
+  "condition": "string",
+  "units": [
+    {
+      "id": "kebab-case-id",
+      "type": "eligibility | order | captureField | noteSection | followUp",
+      "gate": "include | exclude | none",   // eligibility only; else "none"
+      "planKind": "assess | discuss | order | refer | none",
+      "dimension": "diagnosis | inclusion | exclusion | workup | preferredTherapy | followUp | monitoring | counseling | other",
+      "content": "short clinician-facing text",
+      "rationale": "one short sentence",
+      "noteSectionKey": "section title (noteSection only, else \\"\\")",
+      "whenAll": [ { "fact": "problems", "op": "includes", "value": "PCOS", "withinDays": 0, "label": "Problem list" } ],
+      "whenAny": [],
+      "sourceRef": { "source": "string", "locator": "string", "quote": "string" },
+      "decisionRef": "decision id or \\"\\""
+    }
+  ],
+  "decisions": [
+    { "id": "kebab-id", "question": "string", "chosen": "string",
+      "optionsConsidered": [ { "label": "string", "sourceCitation": "string", "sourceQuote": "string" } ] }
+  ]
+}
+Ops: includes/excludes (array facts: problems, goals, meds), equals (sex or numbers), gt/lt/gte/lte (numbers), between (value "18,45"), exists/missing (lab:/vital: with optional withinDays; value ""). Always include withinDays (0 if none) and label.`;
 
-export interface InterviewDecision {
-  forkId: string;
-  question: string;
-  chosenLabel: string;
-  options: { label: string; sourceCitation: string; sourceQuote?: string }[];
+// ── Chart vocabulary (so authored triggers actually compute on real charts) ───
+
+export function chartVocabulary(): string {
+  const patients = loadPatients();
+  const uniq = (xs: string[]) => Array.from(new Set(xs)).sort();
+  const problems = uniq(patients.flatMap((p) => p.problems));
+  const goals = uniq(patients.flatMap((p) => p.goals));
+  const meds = uniq(patients.flatMap((p) => p.meds));
+  const labs = uniq(patients.flatMap((p) => p.labs.map((l) => l.name)));
+  const vitals = uniq(patients.flatMap((p) => p.vitals.map((v) => v.name)));
+  return [
+    "Patient-chart fact vocabulary (write triggers against these so the guideline computes on real charts):",
+    `- problems (array; op includes/excludes): ${problems.join(", ")}`,
+    `- goals (array; op includes/excludes): ${goals.join(", ")}`,
+    `- meds (array; op includes/excludes): ${meds.join(", ") || "(none)"}`,
+    `- age (number; op gt/lt/gte/lte/between/equals)`,
+    `- sex (string; op equals): female, male, other`,
+    `- vital:<Name> (op gt/lt/gte/lte/between/exists/missing): ${vitals.map((v) => `vital:${v}`).join(", ")}`,
+    `- lab:<Name> (op gt/lt/gte/lte/between/exists/missing; use withinDays for freshness): ${labs.map((l) => `lab:${l}`).join(", ")}`,
+    "Notes: 'between' value is two numbers like \"18,45\". 'exists'/'missing' ignore value (set value to \"\"). withinDays 0 means no freshness window. You may introduce new lab/vital names if the guideline needs them, but prefer the listed ones so units fire on existing charts.",
+  ].join("\n");
 }
 
-function has(label: string, needle: string): boolean {
-  return label.toLowerCase().includes(needle.toLowerCase());
+// ── Compiler: validated structured output → computable Protocol ───────────────
+
+interface RawCondition {
+  fact: string;
+  op: string;
+  value: string;
+  withinDays: number;
+  label: string;
+}
+interface RawUnit {
+  id: string;
+  type: string;
+  gate: string;
+  planKind: string;
+  dimension: string;
+  content: string;
+  rationale: string;
+  noteSectionKey: string;
+  whenAll: RawCondition[];
+  whenAny: RawCondition[];
+  sourceRef: { source: string; locator: string; quote: string };
+  decisionRef: string;
+}
+export interface CompiledProtocol {
+  condition: string;
+  units: RawUnit[];
+  decisions: {
+    id: string;
+    question: string;
+    chosen: string;
+    optionsConsidered: { label: string; sourceCitation: string; sourceQuote?: string }[];
+  }[];
 }
 
-/** Content variants a decision selects. Triggers/types stay canonical. */
-function unitContentFor(
-  forkId: string,
-  chosen: string,
-): { unitId: string; content: string } | null {
-  switch (forkId) {
-    case "fork-ovulation":
-      return {
-        unitId: "u-letrozole",
-        content: has(chosen, "clomiphene")
-          ? "Offer clomiphene citrate as first-line ovulation induction"
-          : "Offer letrozole as first-line ovulation induction",
-      };
-    case "fork-glycaemic":
-      return {
-        unitId: "u-ogtt",
-        content: has(chosen, "hba1c") || has(chosen, "fasting")
-          ? "Order HbA1c for baseline glycaemic screening"
-          : "Order 75 g 2-hour oral glucose tolerance test (OGTT)",
-      };
-    case "fork-amh":
-      return {
-        unitId: "u-amh",
-        content: has(chosen, "ultrasound")
-          ? "Order pelvic ultrasound to assess polycystic ovarian morphology"
-          : "Order serum AMH to define PCOM (in lieu of pelvic ultrasound)",
-      };
-    default:
-      return null;
-  }
-}
+const isNumeric = (s: string) => s.trim() !== "" && !Number.isNaN(Number(s));
 
-/**
- * Build an authored protocol from confirmed interview decisions. Starts from the
- * canonical skeleton (so it always composes), applies content variants the
- * decisions select, sets decisionRefs, and records the Decision objects.
- */
-export function applyDecisions(decisions: InterviewDecision[]): Protocol {
-  const protocol = loadSeedProtocol();
-  const byFork = new Map(decisions.map((d) => [d.forkId, d]));
-
-  const bump = (id: string, patch: Partial<ProtocolUnit>) => {
-    protocol.units = protocol.units.map((u) =>
-      u.id === id ? { ...u, ...patch, version: u.version + 1 } : u,
-    );
+function toCondition(rc: RawCondition): Condition | null {
+  const op = rc.op as PredicateOp;
+  if (!OPS.includes(op) || !rc.fact) return null;
+  const base = {
+    fact: rc.fact,
+    op,
+    label: rc.label || rc.fact,
+    ...(rc.withinDays > 0 ? { withinDays: rc.withinDays } : {}),
   };
-
-  for (const fork of PCOS_FORKS) {
-    const d = byFork.get(fork.id);
-    if (!d) continue;
-    const variant = unitContentFor(fork.id, d.chosenLabel);
-    if (variant) bump(variant.unitId, { content: variant.content });
+  if (op === "exists" || op === "missing") return base as Condition;
+  if (op === "includes" || op === "excludes")
+    return { ...base, value: rc.value } as Condition;
+  if (op === "between") {
+    const parts = rc.value.split(/[,\-–]/).map((s) => Number(s.trim()));
+    if (parts.length !== 2 || parts.some(Number.isNaN)) return null;
+    return { ...base, value: [parts[0], parts[1]] } as Condition;
   }
-
-  // Follow-up unit composes cadence + owner decisions.
-  const cadence = byFork.get("fork-cadence")?.chosenLabel;
-  const owner = byFork.get("fork-followup-owner")?.chosenLabel;
-  if (cadence || owner) {
-    const cad = cadence && has(cadence, "6") ? "6-month" : "3-month";
-    const own = owner && has(owner, "physician") ? "physician" : "nurse-led";
-    bump("u-followup", { content: `Schedule ${cad} ${own} follow-up` });
-  }
-
-  // Record the org decisions (dual provenance source #2).
-  protocol.decisions = PCOS_FORKS.map((fork) => {
-    const d = byFork.get(fork.id);
-    const existing = protocol.decisions.find((x) => x.id === fork.decisionId);
-    const chosen = d?.chosenLabel ?? existing?.chosen ?? fork.options[0].label;
+  // numeric/equals
+  if (op === "equals")
     return {
-      id: fork.decisionId,
-      version: (existing?.version ?? 1) + (d ? 1 : 0),
-      question: fork.question,
-      optionsConsidered: (d?.options ?? fork.options).map((o) => ({
-        label: o.label,
-        sourceCitation:
-          ("sourceCitation" in o && o.sourceCitation) ||
-          ("sourceHint" in o ? (o as { sourceHint: string }).sourceHint : ""),
-        sourceQuote: "sourceQuote" in o ? o.sourceQuote : undefined,
-      })),
-      chosen,
-    } as Decision;
-  });
-
-  protocol.version = protocol.version + 1;
-  return protocol;
+      ...base,
+      value: isNumeric(rc.value) ? Number(rc.value) : rc.value,
+    } as Condition;
+  if (!isNumeric(rc.value)) return null;
+  return { ...base, value: Number(rc.value) } as Condition;
 }
 
-/** Overlay Opus-authored rationale + grounded source provenance by unit id. */
-export function overlayEnrichment(
-  protocol: Protocol,
-  units: { id: string; rationale: string; sourceRef: ProtocolUnit["sourceRef"] }[],
-): Protocol {
-  const byId = new Map(units.map((u) => [u.id, u]));
-  return {
-    ...protocol,
-    units: protocol.units.map((u) => {
-      const e = byId.get(u.id);
-      if (!e) return u;
-      return { ...u, rationale: e.rationale, sourceRef: e.sourceRef };
-    }),
-  };
+function planKindFor(type: string, given: string): PlanKind | undefined {
+  if (given && given !== "none") return given as PlanKind;
+  if (type === "order") return "order";
+  if (type === "captureField") return "assess";
+  if (type === "followUp") return "refer";
+  return undefined;
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "protocol";
+}
+
+/** Build a validated, computable Protocol from Opus's compiled output. */
+export function buildProtocolFromCompiled(data: CompiledProtocol): Protocol {
+  const usedIds = new Set<string>();
+  const units: ProtocolUnit[] = [];
+
+  for (const ru of data.units ?? []) {
+    const all = (ru.whenAll ?? []).map(toCondition).filter(Boolean) as Condition[];
+    const any = (ru.whenAny ?? []).map(toCondition).filter(Boolean) as Condition[];
+    if (all.length === 0 && any.length === 0) continue; // inert; drop
+
+    const trigger: Predicate = {};
+    if (all.length) trigger.all = all;
+    if (any.length) trigger.any = any;
+
+    let id = ru.id?.trim() || `${slug(ru.dimension || ru.type)}-${units.length}`;
+    while (usedIds.has(id)) id = `${id}-${units.length}`;
+    usedIds.add(id);
+
+    const type = (UNIT_TYPES.includes(ru.type) ? ru.type : "captureField") as UnitType;
+
+    units.push({
+      id,
+      version: 1,
+      type,
+      content: ru.content,
+      trigger,
+      rationale: ru.rationale,
+      sourceRef: ru.sourceRef,
+      status: "approved",
+      planKind: type === "eligibility" || type === "noteSection" ? undefined : planKindFor(type, ru.planKind),
+      noteSectionKey: type === "noteSection" ? ru.noteSectionKey || ru.content : undefined,
+      decisionRef: ru.decisionRef || undefined,
+      dimension: ru.dimension || undefined,
+      gate:
+        type === "eligibility"
+          ? ru.gate === "exclude"
+            ? "exclude"
+            : "include"
+          : undefined,
+    });
+  }
+
+  const condition = data.condition?.trim() || "Protocol";
+
+  // Guarantee an eligibility gate so the protocol composes at the point of care.
+  if (!units.some((u) => u.type === "eligibility")) {
+    units.unshift({
+      id: "u-elig",
+      version: 1,
+      type: "eligibility",
+      content: `${condition} service-line eligibility`,
+      trigger: {
+        all: [
+          { fact: "problems", op: "includes", value: condition, label: "Problem list" },
+        ],
+      },
+      rationale: `Patients with ${condition} on the problem list are governed by this protocol.`,
+      sourceRef: { source: "Org protocol", locator: "Eligibility", quote: "" },
+      status: "approved",
+      dimension: "inclusion",
+    });
+  }
+
+  const decisions: Decision[] = (data.decisions ?? []).map((d, i) => ({
+    id: d.id?.trim() || `d-${i}`,
+    version: 1,
+    question: d.question,
+    chosen: d.chosen,
+    optionsConsidered: (d.optionsConsidered ?? []).map((o) => ({
+      label: o.label,
+      sourceCitation: o.sourceCitation,
+      sourceQuote: o.sourceQuote,
+    })),
+  }));
+
+  return { id: `${slug(condition)}-v1`, condition, version: 1, units, decisions };
 }

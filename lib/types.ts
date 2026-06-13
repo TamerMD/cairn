@@ -35,6 +35,7 @@ export interface Patient {
 
 export type PredicateOp =
   | "includes"
+  | "excludes"
   | "equals"
   | "gt"
   | "lt"
@@ -100,6 +101,15 @@ export interface ProtocolUnit {
   planKind?: PlanKind;
   /** Title for noteSection units. */
   noteSectionKey?: string;
+  /** Protocol dimension this unit belongs to (diagnosis, inclusion, workup, …). */
+  dimension?: string;
+  /**
+   * For `eligibility` units only: how this gate participates in cohort membership.
+   * 'include' (default) — the patient must match. 'exclude' — the patient must
+   * NOT match (an exclusion criterion). Lets the protocol express both without
+   * inverting inclusion logic.
+   */
+  gate?: "include" | "exclude";
 }
 
 // ── Decisions (the forks resolved in the interview) ───────────────────────────

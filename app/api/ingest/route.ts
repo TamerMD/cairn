@@ -1,24 +1,24 @@
 // ── POST /api/ingest ──────────────────────────────────────────────────────────
-// Opus reads the uploaded source PDFs natively and decomposes them into
-// structured candidate protocol units + the genuine decision forks (grounded in
-// real quotes), steered toward the curated PCOS fork set so the interview stays
-// crisp. Structured output only — never freeform chat.
+// Opus reads ALL uploaded source PDFs natively and synthesizes a draft protocol
+// across the dimensions a good guideline needs — diagnosis, inclusion/exclusion,
+// recommended work-up, preferred therapies, follow-up cadence, monitoring — and
+// surfaces the genuine discussion points it discovered (no pre-canned forks).
+// Streams Opus's live reasoning + the synthesis as SSE.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { hasApiKey, pdfBlock, runStructuredStreaming } from "@/lib/anthropic";
-import { INGEST_SCHEMA } from "@/lib/schemas";
-import { PCOS_FORKS } from "@/data/pcos-forks";
+import { SYNTHESIS_SCHEMA } from "@/lib/schemas";
 
 export const maxDuration = 300;
 
 const SYSTEM = `You are Cairn's clinical protocol synthesis engine for a specialty outpatient group.
-You read uploaded source documents (society guideline PDFs, research papers, and the org's existing protocol) and decompose them into (a) structured candidate protocol elements and (b) the genuine decision forks where the sources conflict or leave a local choice open.
-You operationalize the organization's OWN care model — you never dispense medical advice. Ground every quote in the actual uploaded text; if a source is silent on an option, set its quote to "(not addressed in the provided sources)".`;
+You read the uploaded source documents (society guidelines, research papers, and the org's existing protocol) and synthesize a DRAFT operational protocol for the organization. A good protocol spans: diagnosis criteria, inclusion and exclusion criteria for treatment, recommended work-up, preferred therapies, follow-up cadence, and monitoring.
+For each dimension, summarize what the sources support and ground it in a real quote with a locator. Then surface the genuine DISCUSSION POINTS you discovered — places where the sources conflict, leave latitude, or where the organization must make a local choice. Do not invent forks; derive them from the actual sources.
+You operationalize the organization's OWN care model — never dispense medical advice. Infer the condition/service line from the sources.`;
 
 interface IngestBody {
   pdfs?: { name: string; base64: string }[];
   notes?: string;
-  condition?: string;
 }
 
 export async function POST(request: Request) {
@@ -44,13 +44,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const forkBrief = PCOS_FORKS.map(
-    (f) =>
-      `- ${f.id}: ${f.question} Options: ${f.options
-        .map((o) => o.label)
-        .join(" | ")}. (${f.tension})`,
-  ).join("\n");
-
   const content: Anthropic.ContentBlockParam[] = [];
   for (const p of pdfs) content.push(pdfBlock(p.base64));
   if (body.notes) {
@@ -58,18 +51,9 @@ export async function POST(request: Request) {
   }
   content.push({
     type: "text",
-    text: `Condition / service line: ${body.condition ?? "PCOS"}.
-
-Resolve this curated, pre-validated set of decision forks — these are the decision points this service line must settle. Keep the fork ids exactly as given. For each fork, ground each option in a real quote drawn from the uploaded sources (with a citation locator), and name the option the evidence most supports as recommendedLabel.
-
-${forkBrief}
-
-Also extract 4–8 candidate protocol units you find directly supported in the sources (orders, capture fields, note sections, follow-up), each with a supporting quote and locator.
-
-Return JSON conforming to the schema.`,
+    text: `Synthesize a draft protocol from the ${pdfs.length} uploaded source${pdfs.length === 1 ? "" : "s"}${body.notes ? " and the notes" : ""}. Cover every applicable dimension (diagnosis, inclusion, exclusion, workup, preferredTherapy, followUp, monitoring, counseling), ground each in a real quote, and surface the genuine discussion points you found. Return JSON per the schema.`,
   });
 
-  // Stream Opus's live reasoning trace, then the final structured result, as SSE.
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -80,7 +64,7 @@ Return JSON conforming to the schema.`,
           {
             system: SYSTEM,
             content,
-            schema: INGEST_SCHEMA,
+            schema: SYNTHESIS_SCHEMA,
             maxTokens: 16000,
             effort: "high",
           },
@@ -94,7 +78,7 @@ Return JSON conforming to the schema.`,
       } catch (e) {
         send({
           type: "error",
-          error: e instanceof Error ? e.message : "Ingestion failed",
+          error: e instanceof Error ? e.message : "Synthesis failed",
         });
       } finally {
         controller.close();

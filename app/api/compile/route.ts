@@ -1,97 +1,92 @@
 // ── POST /api/compile ─────────────────────────────────────────────────────────
-// Confirmed decisions → structured ProtocolUnit[] with dual provenance. The
-// decisions select content variants on the canonical skeleton (so the protocol
-// always composes deterministically at the point of care); Opus then authors
-// each unit's rationale and grounded source citation from the real evidence
-// surfaced during ingestion. Falls back to the seeded provenance on failure.
+// Compiles the synthesis + interview into a COMPUTABLE protocol: ProtocolUnit[]
+// whose triggers are real predicates over the patient-chart vocabulary, then
+// validates/repairs into our Predicate model so it runs deterministically.
+//
+// Runs on Opus 4.8 (single call) for full authoring capability. We use plain
+// JSON output (no grammar-constrained structured decoding, which is far slower
+// on large/nested schemas) + a validating builder for safety.
 
-import { hasApiKey, runStructured } from "@/lib/anthropic";
+import { hasApiKey, runJson } from "@/lib/anthropic";
 import {
-  applyDecisions,
-  COMPILE_SCHEMA,
-  overlayEnrichment,
-  type InterviewDecision,
+  buildProtocolFromCompiled,
+  chartVocabulary,
+  COMPILE_JSON_SHAPE,
+  type CompiledProtocol,
 } from "@/lib/schemas";
-import type { ProtocolUnit } from "@/lib/types";
+import { composeVisitPlan } from "@/lib/compose";
+import { loadPatients } from "@/lib/store";
 
-export const maxDuration = 300;
+export const maxDuration = 120;
 
-const SYSTEM = `You are Cairn's protocol compiler. You are given the org's confirmed decisions and the candidate evidence extracted from their uploaded sources, plus the canonical set of protocol units (with fixed ids, types, and triggers).
-For each unit, write a tight one-sentence clinical rationale and attach the single best grounding source citation (source name, locator, and a real quote) drawn from the provided evidence. Do not invent quotes; if the evidence doesn't cover a unit, cite the most relevant source you were given. You operationalize the org's own protocol — never give medical advice.`;
+const SYSTEM = `You are Cairn's protocol compiler. Turn the synthesis and the interview into a COMPUTABLE protocol: a set of units that run deterministically on patient charts.
 
-interface CompileBody {
-  decisions?: InterviewDecision[];
-  candidateUnits?: {
-    title: string;
-    type: string;
-    rationale: string;
-    sourceQuote: string;
-    sourceLocator: string;
-  }[];
-  sources?: { name: string }[];
-}
+Author units across the dimensions defined in the interview: the cohort gate, recommended work-up (orders), capture/assessment fields, counseling/discussion points, preferred-therapy orders, follow-up (type "followUp"), and note-scaffold sections (type "noteSection").
+
+ELIGIBILITY — get this right, it decides who the protocol runs on:
+- Inclusion: type "eligibility", gate "include". The patient MUST match (e.g. condition on problem list, sex, reproductive age). ANDed — keep broad enough to admit every patient the protocol covers. Usually ONE inclusion gate.
+- Exclusion (cohort-level only): type "eligibility", gate "exclude" — the patient is removed if they MATCH. Do NOT phrase exclusions as "must have X".
+- A care GOAL (fertility, cycle control) or therapy CONTRAINDICATION (e.g. pregnancy before letrozole) is NOT eligibility. Never gate the cohort on a goal. Put goal/contraindication logic on the SPECIFIC order's own trigger.
+
+TRIGGERS must be COMPUTABLE over the chart vocabulary provided. Use the listed fact names so units fire on real charts. For non-eligibility units, gate is "none".
+Reflect the director's confirmed choices: set decisionRef to the matching decision id and record those decisions. Ground each unit's sourceRef in the evidence. Set planKind for actionable units. Never give medical advice.`;
 
 export async function POST(request: Request) {
-  let body: CompileBody;
+  if (!hasApiKey()) {
+    return Response.json(
+      { error: "ANTHROPIC_API_KEY is not configured on the server." },
+      { status: 503 },
+    );
+  }
+
+  let body: { synthesis?: unknown; messages?: { role: string; content: string }[] };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Deterministic structure first — this always composes at the point of care.
-  let protocol = applyDecisions(body.decisions ?? []);
+  const convo = (body.messages ?? [])
+    .map((m) => `${m.role === "assistant" ? "Cairn" : "Director"}: ${m.content}`)
+    .join("\n");
 
-  // Live grounding pass (best-effort; seeded provenance remains if it fails).
-  if (hasApiKey()) {
-    try {
-      const unitBrief = protocol.units
-        .map(
-          (u) =>
-            `- ${u.id} (${u.type}${u.decisionRef ? `, decision: ${u.decisionRef}` : ""}): ${u.content}`,
-        )
-        .join("\n");
-      const evidence = (body.candidateUnits ?? [])
-        .map(
-          (c) =>
-            `- ${c.title} [${c.sourceLocator}]: "${c.sourceQuote}"`,
-        )
-        .join("\n");
-      const decisions = (body.decisions ?? [])
-        .map((d) => `- ${d.question} → ${d.chosenLabel}`)
-        .join("\n");
+  try {
+    const compiled = await runJson<CompiledProtocol>({
+      system: SYSTEM,
+      content: [
+        {
+          type: "text",
+          text: `${chartVocabulary()}
 
-      const result = await runStructured<{
-        units: { id: string; rationale: string; sourceRef: ProtocolUnit["sourceRef"] }[];
-      }>({
-        system: SYSTEM,
-        content: [
-          {
-            type: "text",
-            text: `Sources: ${(body.sources ?? []).map((s) => s.name).join(", ") || "uploaded sources"}
+SOURCE SYNTHESIS (JSON):
+${JSON.stringify(body.synthesis ?? {}, null, 1)}
 
-Confirmed org decisions:
-${decisions || "(none — defaults retained)"}
+INTERVIEW TRANSCRIPT:
+${convo || "(none)"}
 
-Evidence extracted from the sources:
-${evidence || "(none)"}
+Compile the computable protocol now. Author a focused set of about 8–12 units total (one inclusion gate, any cohort exclusions, the core work-up/therapy/follow-up, and 3–4 note sections). Be concise — short content and rationale.
 
-Canonical protocol units to ground:
-${unitBrief}
+Return ONLY a JSON object in a \`\`\`json code block, matching this shape exactly:
+${COMPILE_JSON_SHAPE}`,
+        },
+      ],
+      maxTokens: 12000,
+      effort: "low",
+      thinking: "disabled",
+    });
 
-Return JSON per schema: one entry per unit id above.`,
-          },
-        ],
-        schemaName: "compiled_units",
-        schema: COMPILE_SCHEMA,
-        maxTokens: 16000,
-        effort: "high",
-      });
-      protocol = overlayEnrichment(protocol, result.units);
-    } catch {
-      // keep deterministic protocol with seeded provenance
-    }
+    const protocol = buildProtocolFromCompiled(compiled);
+
+    const coverage = loadPatients().map((p) => {
+      const plan = composeVisitPlan(protocol, p);
+      return { id: p.id, eligible: plan.eligible, items: plan.items.length };
+    });
+
+    return Response.json({ protocol, coverage });
+  } catch (e) {
+    return Response.json(
+      { error: e instanceof Error ? e.message : "Compile failed" },
+      { status: 500 },
+    );
   }
-
-  return Response.json({ protocol });
 }
