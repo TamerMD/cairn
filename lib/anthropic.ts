@@ -54,7 +54,6 @@ export async function runStructured<T>(opts: {
       effort: opts.effort ?? "high",
       format: {
         type: "json_schema",
-        name: opts.schemaName,
         schema: opts.schema,
       },
     },
