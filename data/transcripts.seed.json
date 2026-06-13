@@ -1,0 +1,34 @@
+[
+  {
+    "patientId": "dana-whitfield",
+    "turns": [
+      { "spanId": "t1", "speaker": "Clinician", "text": "Hi Dana, good to see you. Before we dig in — you and your partner are hoping to start trying for a pregnancy this year, is that right?" },
+      { "spanId": "t2", "speaker": "Patient", "text": "Yes, that's the main reason I'm here. My cycles are all over the place though — sometimes 40, 50 days apart." },
+      { "spanId": "t3", "speaker": "Clinician", "text": "That irregularity fits the PCOS picture. Let me note the cycle history — roughly how many periods in the last year?" },
+      { "spanId": "t4", "speaker": "Patient", "text": "Maybe six or seven. Definitely not monthly." },
+      { "spanId": "t5", "speaker": "Clinician", "text": "Okay. Your weight today puts your BMI around 32. I checked your blood pressure — 128 over 82, which is fine. I also looked at the hair-growth pattern on your face and chin; I'm scoring that for hirsutism." },
+      { "spanId": "t6", "speaker": "Patient", "text": "The hair has gotten more noticeable, yeah." },
+      { "spanId": "t7", "speaker": "Clinician", "text": "Because BMI is over 25, the single most effective thing for both your metabolic health and your fertility is a structured lifestyle and weight-management plan. I'd like to start there and I'll refer you to our dietitian." },
+      { "spanId": "t8", "speaker": "Patient", "text": "I'm willing to do that. But how long before we can actually try?" },
+      { "spanId": "t9", "speaker": "Clinician", "text": "We can run in parallel. For ovulation induction our first-line medication is letrozole — the evidence shows higher live-birth rates than the older drug, clomiphene. I'm going to offer you letrozole as the plan." },
+      { "spanId": "t10", "speaker": "Patient", "text": "Letrozole — okay, I've read a little about that." },
+      { "spanId": "t11", "speaker": "Clinician", "text": "Before we start, I need some baseline labs. I'm ordering a 75-gram glucose tolerance test, a fasting lipid panel, and an AMH level — we use AMH instead of a pelvic ultrasound here." },
+      { "spanId": "t12", "speaker": "Patient", "text": "That's a lot of tests, but that's fine." },
+      { "spanId": "t13", "speaker": "Clinician", "text": "Last thing — I want to see you back with the nurse coordinator in three months to review the labs and how the lifestyle plan is going." },
+      { "spanId": "t14", "speaker": "Patient", "text": "Sounds good. One more thing — my acne has flared up a lot in the last couple of months, it's really bothering me." },
+      { "spanId": "t15", "speaker": "Clinician", "text": "Thanks for flagging that — let's make sure we address the acne too. We'll follow up on it." }
+    ]
+  },
+  {
+    "patientId": "priya-raman",
+    "turns": [
+      { "spanId": "t1", "speaker": "Clinician", "text": "Hi Priya. You're not trying to conceive right now — the priority is getting your cycles regular, correct?" },
+      { "spanId": "t2", "speaker": "Patient", "text": "Right. The unpredictability is the worst part. And I'm still on the metformin." },
+      { "spanId": "t3", "speaker": "Clinician", "text": "Good. For cycle regulation and the hair symptoms, first-line is a combined oral contraceptive pill. I'd like to discuss starting one." },
+      { "spanId": "t4", "speaker": "Patient", "text": "I'd be open to that." },
+      { "spanId": "t5", "speaker": "Clinician", "text": "Your BMI is 24, blood pressure 118 over 76, both good. Your OGTT and lipids from February were normal so we don't need to repeat those today. Let me document the cycle history and hirsutism score." },
+      { "spanId": "t6", "speaker": "Patient", "text": "Okay." },
+      { "spanId": "t7", "speaker": "Clinician", "text": "I'll book you back with the nurse coordinator in three months." }
+    ]
+  }
+]

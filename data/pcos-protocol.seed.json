@@ -1,0 +1,435 @@
+{
+  "id": "pcos-v1",
+  "condition": "PCOS",
+  "version": 1,
+  "decisions": [
+    {
+      "id": "d-amh",
+      "version": 1,
+      "question": "How should polycystic ovarian morphology (PCOM) be confirmed in adults?",
+      "optionsConsidered": [
+        {
+          "label": "Serum AMH (alternative to ultrasound in adults)",
+          "sourceCitation": "2023 Intl Evidence-based PCOS Guideline",
+          "sourceQuote": "Serum AMH can be used as an alternative to ultrasound for the detection of PCOM in adults."
+        },
+        {
+          "label": "Pelvic ultrasound (Rotterdam)",
+          "sourceCitation": "Rotterdam Consensus (2004)",
+          "sourceQuote": "PCOM defined as ≥12 follicles per ovary or ovarian volume ≥10 mL on ultrasound."
+        }
+      ],
+      "chosen": "Serum AMH (alternative to ultrasound in adults)"
+    },
+    {
+      "id": "d-ovulation",
+      "version": 1,
+      "question": "What is first-line pharmacological ovulation induction for anovulatory infertility?",
+      "optionsConsidered": [
+        {
+          "label": "Letrozole",
+          "sourceCitation": "Legro et al., NEJM 2014; 2023 Guideline",
+          "sourceQuote": "Letrozole resulted in higher live-birth and ovulation rates than clomiphene among women with PCOS."
+        },
+        {
+          "label": "Clomiphene citrate",
+          "sourceCitation": "Legacy practice",
+          "sourceQuote": "Clomiphene citrate has historically been the first-line agent for ovulation induction."
+        }
+      ],
+      "chosen": "Letrozole"
+    },
+    {
+      "id": "d-glycaemic",
+      "version": 1,
+      "question": "Which test for baseline glycaemic assessment?",
+      "optionsConsidered": [
+        {
+          "label": "75 g 2-hour OGTT for BMI ≥ 25",
+          "sourceCitation": "2023 Intl Evidence-based PCOS Guideline",
+          "sourceQuote": "An OGTT is the preferred test to assess glycaemic status, especially where BMI ≥ 25 kg/m²."
+        },
+        {
+          "label": "HbA1c or fasting glucose",
+          "sourceCitation": "Convenience / ADA general screening",
+          "sourceQuote": "HbA1c offers a convenient single non-fasting sample for dysglycaemia screening."
+        }
+      ],
+      "chosen": "75 g 2-hour OGTT for BMI ≥ 25"
+    },
+    {
+      "id": "d-cadence",
+      "version": 1,
+      "question": "Routine follow-up cadence for PCOS in this service line?",
+      "optionsConsidered": [
+        {
+          "label": "3 months",
+          "sourceCitation": "Org PCOS Pathway v1",
+          "sourceQuote": "Active-management patients are reviewed quarterly."
+        },
+        {
+          "label": "6 months",
+          "sourceCitation": "Org PCOS Pathway v1",
+          "sourceQuote": "Stable patients may extend to six-monthly review."
+        }
+      ],
+      "chosen": "3 months"
+    },
+    {
+      "id": "d-followup-owner",
+      "version": 1,
+      "question": "Who leads routine PCOS follow-up?",
+      "optionsConsidered": [
+        {
+          "label": "Nurse-led care coordinator",
+          "sourceCitation": "Org PCOS Pathway v1",
+          "sourceQuote": "Follow-up is coordinated by the nurse-led PCOS clinic."
+        },
+        {
+          "label": "Physician",
+          "sourceCitation": "Org PCOS Pathway v1",
+          "sourceQuote": "Physician-led review for complex cases."
+        }
+      ],
+      "chosen": "Nurse-led care coordinator"
+    }
+  ],
+  "units": [
+    {
+      "id": "u-elig",
+      "version": 1,
+      "type": "eligibility",
+      "status": "approved",
+      "content": "PCOS service-line eligibility (reproductive-age adult)",
+      "rationale": "A confirmed PCOS diagnosis in a reproductive-age adult woman defines the cohort this protocol governs.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Diagnostic criteria",
+        "quote": "PCOS is diagnosed in adults using the Rotterdam criteria (two of three of ovulatory dysfunction, hyperandrogenism, and PCOM)."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "sex", "op": "equals", "value": "female", "label": "Sex" },
+          { "fact": "age", "op": "between", "value": [18, 45], "label": "Age" }
+        ]
+      }
+    },
+    {
+      "id": "u-bmi",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "assess",
+      "status": "approved",
+      "content": "Record height, weight & BMI",
+      "rationale": "BMI anchors metabolic risk stratification and the BMI-dependent screening thresholds below.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Anthropometry",
+        "quote": "BMI should be measured in all individuals with PCOS at diagnosis and during follow-up."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "u-bp",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "assess",
+      "status": "approved",
+      "content": "Measure blood pressure",
+      "rationale": "Blood pressure surveillance for the elevated cardiometabolic risk associated with PCOS.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Cardiovascular risk",
+        "quote": "Blood pressure should be measured annually given increased cardiovascular risk."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "u-fg",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "assess",
+      "status": "approved",
+      "content": "Score hirsutism (modified Ferriman–Gallwey)",
+      "rationale": "Standardized hyperandrogenism assessment to guide cosmetic and pharmacological therapy.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Hyperandrogenism",
+        "quote": "Use a standardized visual scale (e.g. modified Ferriman–Gallwey) to assess hirsutism."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "u-cycle",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "assess",
+      "status": "approved",
+      "content": "Document menstrual cycle history & ovulatory status",
+      "rationale": "Cycle pattern drives both the metabolic and the reproductive arms of the pathway.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Ovulatory dysfunction",
+        "quote": "Cycle length and ovulatory status should be characterized to guide management."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "u-mood",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "assess",
+      "status": "approved",
+      "content": "Screen for depression & anxiety (PHQ-2 / GAD-2)",
+      "rationale": "The guideline mandates routine psychological screening; mood disorders are markedly more prevalent in PCOS.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Psychological features",
+        "quote": "Screen all individuals with PCOS for depressive and anxiety symptoms at diagnosis."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "u-lifestyle",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "discuss",
+      "status": "approved",
+      "content": "Discuss lifestyle & weight management as first-line therapy",
+      "rationale": "Lifestyle intervention is first-line for metabolic and reproductive outcomes when BMI ≥ 25.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Lifestyle",
+        "quote": "Lifestyle intervention is recommended as first-line management for weight and metabolic features."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "vital:BMI", "op": "gte", "value": 25, "label": "BMI" }
+        ]
+      }
+    },
+    {
+      "id": "u-metformin",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "discuss",
+      "status": "approved",
+      "content": "Review metformin as an adjunct for metabolic features",
+      "rationale": "Metformin may be added to lifestyle for weight and metabolic outcomes, particularly when BMI ≥ 25.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Pharmacological – metabolic",
+        "quote": "Metformin should be considered in adults with PCOS and BMI ≥ 25 for weight and metabolic outcomes."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "vital:BMI", "op": "gte", "value": 25, "label": "BMI" }
+        ]
+      }
+    },
+    {
+      "id": "u-cocp",
+      "version": 1,
+      "type": "captureField",
+      "planKind": "discuss",
+      "status": "approved",
+      "content": "Discuss combined oral contraceptive pill for cycle regulation / hyperandrogenism",
+      "rationale": "COCP is first-line for menstrual irregularity and hyperandrogenism in patients not currently pursuing pregnancy.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Menstrual / hyperandrogenism",
+        "quote": "Combined oral contraceptives are first-line for management of irregular cycles and clinical hyperandrogenism."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "goals", "op": "includes", "value": "Cycle control", "label": "Care goal" }
+        ]
+      }
+    },
+    {
+      "id": "u-ogtt",
+      "version": 1,
+      "type": "order",
+      "planKind": "order",
+      "status": "approved",
+      "decisionRef": "d-glycaemic",
+      "content": "Order 75 g 2-hour oral glucose tolerance test (OGTT)",
+      "rationale": "This org screens glycaemic status with a 75 g OGTT (not HbA1c) when BMI ≥ 25 and no result is on file.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Glycaemic assessment",
+        "quote": "An OGTT is the preferred test to assess glycaemic status, especially where BMI ≥ 25 kg/m²."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "vital:BMI", "op": "gte", "value": 25, "label": "BMI" },
+          { "fact": "lab:OGTT", "op": "missing", "withinDays": 365, "label": "OGTT (75g)" }
+        ]
+      }
+    },
+    {
+      "id": "u-lipids",
+      "version": 1,
+      "type": "order",
+      "planKind": "order",
+      "status": "approved",
+      "content": "Order fasting lipid profile",
+      "rationale": "Baseline cardiovascular risk assessment when no recent lipid panel is on file.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Cardiovascular risk",
+        "quote": "A fasting lipid profile should be measured at diagnosis and repeated based on risk."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "lab:Lipid panel", "op": "missing", "withinDays": 365, "label": "Lipid panel" }
+        ]
+      }
+    },
+    {
+      "id": "u-amh",
+      "version": 1,
+      "type": "order",
+      "planKind": "order",
+      "status": "approved",
+      "decisionRef": "d-amh",
+      "content": "Order serum AMH to define PCOM (in lieu of pelvic ultrasound)",
+      "rationale": "Per the org decision, AMH is the adult PCOM marker instead of pelvic ultrasound when none is on file.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "PCOM – AMH",
+        "quote": "Serum AMH can be used as an alternative to ultrasound for the detection of PCOM in adults."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "age", "op": "gte", "value": 18, "label": "Age" },
+          { "fact": "lab:AMH", "op": "missing", "withinDays": 3650, "label": "AMH" }
+        ]
+      }
+    },
+    {
+      "id": "u-letrozole",
+      "version": 1,
+      "type": "order",
+      "planKind": "order",
+      "status": "approved",
+      "decisionRef": "d-ovulation",
+      "content": "Offer letrozole as first-line ovulation induction",
+      "rationale": "For patients pursuing pregnancy, letrozole is first-line over clomiphene (higher live-birth rate).",
+      "sourceRef": {
+        "source": "Legro et al., NEJM 2014",
+        "locator": "Primary outcome",
+        "quote": "Letrozole was associated with higher live-birth and ovulation rates than clomiphene among infertile women with PCOS."
+      },
+      "trigger": {
+        "all": [
+          { "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" },
+          { "fact": "goals", "op": "includes", "value": "Fertility", "label": "Care goal" }
+        ]
+      }
+    },
+    {
+      "id": "u-followup",
+      "version": 1,
+      "type": "followUp",
+      "planKind": "refer",
+      "status": "approved",
+      "decisionRef": "d-cadence",
+      "content": "Schedule 3-month nurse-led follow-up",
+      "rationale": "This org reviews active-management PCOS patients quarterly through the nurse-led clinic.",
+      "sourceRef": {
+        "source": "Org PCOS Pathway v1",
+        "locator": "Follow-up",
+        "quote": "Active-management patients are reviewed quarterly via the nurse-led PCOS clinic."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "n-dx",
+      "version": 1,
+      "type": "noteSection",
+      "noteSectionKey": "Diagnosis & Rotterdam criteria",
+      "status": "approved",
+      "content": "Summarize the basis for the PCOS diagnosis: ovulatory dysfunction, clinical/biochemical hyperandrogenism, and PCOM (by AMH).",
+      "rationale": "Documents how the Rotterdam criteria were met for this patient.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Diagnostic criteria",
+        "quote": "Document the criteria used to establish the diagnosis."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "n-metabolic",
+      "version": 1,
+      "type": "noteSection",
+      "noteSectionKey": "Metabolic risk",
+      "status": "approved",
+      "content": "Document BMI, blood pressure, glycaemic and lipid status, and any screening ordered.",
+      "rationale": "Captures the cardiometabolic assessment that anchors PCOS management.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Metabolic features",
+        "quote": "Assess and document cardiometabolic risk factors."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "n-repro",
+      "version": 1,
+      "type": "noteSection",
+      "noteSectionKey": "Reproductive goals & plan",
+      "status": "approved",
+      "content": "Document fertility intentions and the ovulation-induction or contraception plan.",
+      "rationale": "Captures the reproductive arm of the plan and the decision made with the patient.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Fertility",
+        "quote": "Discuss and document reproductive goals and the agreed plan."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    },
+    {
+      "id": "n-psych",
+      "version": 1,
+      "type": "noteSection",
+      "noteSectionKey": "Psychological screening",
+      "status": "approved",
+      "content": "Document the result of mood/anxiety screening and any onward referral.",
+      "rationale": "Routine psychological screening is mandated; this section makes its presence (or absence) explicit.",
+      "sourceRef": {
+        "source": "2023 Intl Evidence-based PCOS Guideline",
+        "locator": "Psychological features",
+        "quote": "Screen for and document psychological wellbeing."
+      },
+      "trigger": {
+        "all": [{ "fact": "problems", "op": "includes", "value": "PCOS", "label": "Problem list" }]
+      }
+    }
+  ]
+}

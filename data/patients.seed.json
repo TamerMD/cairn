@@ -1,0 +1,54 @@
+[
+  {
+    "id": "dana-whitfield",
+    "name": "Dana Whitfield",
+    "demographics": { "age": 29, "sex": "female" },
+    "problems": ["PCOS", "Obesity"],
+    "meds": [],
+    "goals": ["Fertility"],
+    "oneLiner": "29F, PCOS, planning pregnancy. No recent metabolic labs on file.",
+    "vitals": [
+      { "name": "BMI", "value": 32.4, "unit": "kg/m²", "date": "2026-06-13" },
+      { "name": "Weight", "value": 91, "unit": "kg", "date": "2026-06-13" },
+      { "name": "BP systolic", "value": 128, "unit": "mmHg", "date": "2026-06-13" },
+      { "name": "BP diastolic", "value": 82, "unit": "mmHg", "date": "2026-06-13" }
+    ],
+    "labs": []
+  },
+  {
+    "id": "priya-raman",
+    "name": "Priya Raman",
+    "demographics": { "age": 34, "sex": "female" },
+    "problems": ["PCOS"],
+    "meds": ["Metformin 500mg BID"],
+    "goals": ["Cycle control"],
+    "oneLiner": "34F, PCOS on metformin, normal BMI. Seeking cycle regulation. Recent labs on file.",
+    "vitals": [
+      { "name": "BMI", "value": 24.1, "unit": "kg/m²", "date": "2026-05-02" },
+      { "name": "Weight", "value": 64, "unit": "kg", "date": "2026-05-02" },
+      { "name": "BP systolic", "value": 118, "unit": "mmHg", "date": "2026-05-02" },
+      { "name": "BP diastolic", "value": 76, "unit": "mmHg", "date": "2026-05-02" }
+    ],
+    "labs": [
+      { "name": "OGTT", "value": "Normal (2h 6.8)", "unit": "mmol/L", "date": "2026-02-11" },
+      { "name": "Lipid panel", "value": "Within range", "date": "2026-02-11" },
+      { "name": "AMH", "value": 41.2, "unit": "pmol/L", "date": "2019-05-20" }
+    ]
+  },
+  {
+    "id": "marcus-lindqvist",
+    "name": "Marcus Lindqvist",
+    "demographics": { "age": 47, "sex": "male" },
+    "problems": ["Type 2 Diabetes", "Hypertension"],
+    "meds": ["Metformin 1000mg BID", "Lisinopril 10mg"],
+    "goals": [],
+    "oneLiner": "47M, type 2 diabetes — outside the PCOS service line (eligibility control).",
+    "vitals": [
+      { "name": "BMI", "value": 30.2, "unit": "kg/m²", "date": "2026-04-18" },
+      { "name": "BP systolic", "value": 142, "unit": "mmHg", "date": "2026-04-18" }
+    ],
+    "labs": [
+      { "name": "HbA1c", "value": 7.4, "unit": "%", "date": "2026-04-18" }
+    ]
+  }
+]
