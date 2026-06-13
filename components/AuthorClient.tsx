@@ -292,7 +292,7 @@ function Upload({
         </p>
         <p className="mt-1 text-sm text-ink-muted">
           Society guidelines, research papers, your existing protocol. Opus reads
-          them natively.
+          them natively. Keep each focused (under ~3&nbsp;MB).
         </p>
         {files.length > 0 && (
           <div className="mt-4 flex flex-wrap justify-center gap-2">

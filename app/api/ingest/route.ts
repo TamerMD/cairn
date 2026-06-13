@@ -76,7 +76,7 @@ Return JSON conforming to the schema.`,
       schemaName: "ingest_result",
       schema: INGEST_SCHEMA,
       maxTokens: 16000,
-      effort: "high",
+      effort: "medium",
     });
     return Response.json(result);
   } catch (e) {
