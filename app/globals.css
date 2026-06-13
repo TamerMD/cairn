@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
+@theme {
+  /* Surfaces — warm bone paper, not stark white */
+  --color-paper: #f5f1e8;
+  --color-paper-deep: #ece6d8;
+  --color-card: #fbf9f3;
+  --color-ink: #1c1a17;
+  --color-ink-muted: #6b6459;
+  --color-line: #e2dac9;
+  --color-line-strong: #cabda3;
+
+  /* Cairn stone — deep teal-green accent */
+  --color-stone: #2b524e;
+  --color-stone-deep: #1f3e3b;
+  --color-stone-soft: #6e8f8a;
+  --color-stone-bg: #e4ece9;
+
+  /* Signal colors for reconciliation states */
+  --color-moss: #56723f;
+  --color-moss-bg: #eaf0df;
+  --color-amber: #a85d1c;
+  --color-amber-bg: #f7e9d3;
+  --color-slate: #3f5d7a;
+  --color-slate-bg: #e6ecf2;
+
+  /* Type */
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* faint paper grain for atmosphere */
+  background-image: radial-gradient(
+    rgba(43, 82, 78, 0.035) 0.5px,
+    transparent 0.5px
+  );
+  background-size: 7px 7px;
+}
+
+::selection {
+  background-color: var(--color-stone);
+  color: var(--color-paper);
+}
+
+/* Editorial display headings: optical sizing + tight tracking via Fraunces */
+.font-display {
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+}
+
+.hairline {
+  border-color: var(--color-line);
 }
