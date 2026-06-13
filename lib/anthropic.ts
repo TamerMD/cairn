@@ -71,3 +71,60 @@ export async function runStructured<T>(opts: {
   }
   return JSON.parse(text) as T;
 }
+
+/**
+ * Like runStructured, but streams summarized thinking as it goes so the UI can
+ * render Opus's live reasoning trace. Calls handlers as events arrive and
+ * returns the validated final object.
+ */
+export async function runStructuredStreaming<T>(
+  opts: {
+    system: string;
+    content: Anthropic.ContentBlockParam[];
+    schema: Record<string, unknown>;
+    maxTokens?: number;
+    effort?: Effort;
+  },
+  handlers: {
+    onThinking?: (text: string) => void;
+    onPhase?: (phase: string) => void;
+    onText?: (text: string) => void;
+  },
+): Promise<T> {
+  const c = getClient();
+  const ms = c.messages.stream({
+    model: MODEL,
+    max_tokens: opts.maxTokens ?? 16000,
+    thinking: { type: "adaptive", display: "summarized" },
+    output_config: {
+      effort: opts.effort ?? "medium",
+      format: { type: "json_schema", schema: opts.schema },
+    },
+    system: opts.system,
+    messages: [{ role: "user", content: opts.content }],
+  } as Anthropic.MessageStreamParams);
+
+  for await (const event of ms) {
+    if (
+      event.type === "content_block_start" &&
+      event.content_block.type === "text"
+    ) {
+      handlers.onPhase?.("drafting");
+    }
+    if (event.type === "content_block_delta") {
+      if (event.delta.type === "thinking_delta") {
+        handlers.onThinking?.(event.delta.thinking);
+      } else if (event.delta.type === "text_delta") {
+        handlers.onText?.(event.delta.text);
+      }
+    }
+  }
+
+  const final = await ms.finalMessage();
+  const text = final.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  if (!text.trim()) throw new Error("Model returned no structured output");
+  return JSON.parse(text) as T;
+}

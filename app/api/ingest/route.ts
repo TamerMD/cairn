@@ -5,7 +5,7 @@
 // crisp. Structured output only — never freeform chat.
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { hasApiKey, pdfBlock, runStructured } from "@/lib/anthropic";
+import { hasApiKey, pdfBlock, runStructuredStreaming } from "@/lib/anthropic";
 import { INGEST_SCHEMA } from "@/lib/schemas";
 import { PCOS_FORKS } from "@/data/pcos-forks";
 
@@ -69,20 +69,45 @@ Also extract 4–8 candidate protocol units you find directly supported in the s
 Return JSON conforming to the schema.`,
   });
 
-  try {
-    const result = await runStructured({
-      system: SYSTEM,
-      content,
-      schemaName: "ingest_result",
-      schema: INGEST_SCHEMA,
-      maxTokens: 16000,
-      effort: "medium",
-    });
-    return Response.json(result);
-  } catch (e) {
-    return Response.json(
-      { error: e instanceof Error ? e.message : "Ingestion failed" },
-      { status: 500 },
-    );
-  }
+  // Stream Opus's live reasoning trace, then the final structured result, as SSE.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      try {
+        const result = await runStructuredStreaming(
+          {
+            system: SYSTEM,
+            content,
+            schema: INGEST_SCHEMA,
+            maxTokens: 16000,
+            effort: "high",
+          },
+          {
+            onThinking: (text) => send({ type: "thinking", text }),
+            onPhase: (phase) => send({ type: "phase", phase }),
+            onText: (text) => send({ type: "draft", text }),
+          },
+        );
+        send({ type: "result", result });
+      } catch (e) {
+        send({
+          type: "error",
+          error: e instanceof Error ? e.message : "Ingestion failed",
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      "x-accel-buffering": "no",
+      connection: "keep-alive",
+    },
+  });
 }

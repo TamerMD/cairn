@@ -60,6 +60,11 @@ export default function AuthorClient() {
   const [error, setError] = useState<string | null>(null);
 
   const [ingest, setIngest] = useState<IngestResult | null>(null);
+  const [trace, setTrace] = useState("");
+  const [phase, setPhase] = useState<"reading" | "drafting">("reading");
+  const [discoveries, setDiscoveries] = useState<string[]>([]);
+  const draftBuf = useRef("");
+  const seen = useRef<Set<string>>(new Set());
   const [forkIndex, setForkIndex] = useState(0);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [turnMsg, setTurnMsg] = useState<string>("");
@@ -69,6 +74,11 @@ export default function AuthorClient() {
   async function runIngest() {
     setBusy(true);
     setError(null);
+    setTrace("");
+    setPhase("reading");
+    setDiscoveries([]);
+    draftBuf.current = "";
+    seen.current = new Set();
     try {
       const pdfs = await Promise.all(
         files.map(async (f) => ({ name: f.name, base64: await fileToBase64(f) })),
@@ -78,9 +88,59 @@ export default function AuthorClient() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pdfs, notes, condition: "PCOS" }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Ingestion failed");
-      setIngest(data as IngestResult);
+
+      // Non-streaming error (e.g. missing key) comes back as JSON.
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? "Ingestion failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let result: IngestResult | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const line = part.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          const evt = JSON.parse(line.slice(6));
+          if (evt.type === "thinking") setTrace((t) => t + evt.text);
+          else if (evt.type === "phase") setPhase("drafting");
+          else if (evt.type === "draft") {
+            // Surface structured items as their JSON strings complete.
+            draftBuf.current += evt.text;
+            const re = /"(question|label|title)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+            const found: string[] = [];
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(draftBuf.current))) {
+              const key = m[1];
+              const val = m[2].replace(/\\"/g, '"').replace(/\\n/g, " ").trim();
+              const tag = `${key}:${val}`;
+              if (val && !seen.current.has(tag)) {
+                seen.current.add(tag);
+                const prefix =
+                  key === "question"
+                    ? "Decision fork"
+                    : key === "label"
+                      ? "Option"
+                      : "Candidate unit";
+                found.push(`${prefix} — ${val}`);
+              }
+            }
+            if (found.length) setDiscoveries((d) => [...d, ...found]);
+          } else if (evt.type === "error") throw new Error(evt.error);
+          else if (evt.type === "result") result = evt.result as IngestResult;
+        }
+      }
+
+      if (!result) throw new Error("No result returned");
+      setIngest(result);
       setStage("review");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ingestion failed");
@@ -188,7 +248,7 @@ export default function AuthorClient() {
           </div>
         )}
 
-        {stage === "upload" && (
+        {stage === "upload" && !busy && (
           <Upload
             files={files}
             setFiles={setFiles}
@@ -196,6 +256,15 @@ export default function AuthorClient() {
             setNotes={setNotes}
             busy={busy}
             onRun={runIngest}
+          />
+        )}
+
+        {stage === "upload" && busy && (
+          <Ingesting
+            trace={trace}
+            phase={phase}
+            files={files}
+            discoveries={discoveries}
           />
         )}
 
@@ -327,6 +396,101 @@ function Upload({
       >
         {busy ? "Reading the sources with Opus…" : "Synthesize sources →"}
       </button>
+    </div>
+  );
+}
+
+// ── Ingesting (live reasoning console) ───────────────────────────────────────
+
+function Ingesting({
+  trace,
+  phase,
+  files,
+  discoveries,
+}: {
+  trace: string;
+  phase: "reading" | "drafting";
+  files: File[];
+  discoveries: string[];
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [trace, discoveries]);
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-stone-soft">
+          {phase === "reading"
+            ? "Opus is reading your sources"
+            : `Opus is drafting structured units · ${discoveries.length} surfaced`}
+        </div>
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-muted">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-stone" />
+          live reasoning
+        </div>
+      </div>
+
+      <div
+        ref={ref}
+        className="h-[440px] overflow-y-auto rounded-2xl border border-stone-deep bg-stone-deep p-6 shadow-inner"
+      >
+        {trace && (
+          <p className="mb-4 whitespace-pre-wrap border-l-2 border-stone-soft/40 pl-3 font-mono text-[12px] leading-relaxed text-paper/60">
+            {trace}
+          </p>
+        )}
+
+        {discoveries.length === 0 && !trace && (
+          <p className="font-mono text-[13px] text-paper/70">
+            Establishing context from the sources…
+          </p>
+        )}
+
+        <ul className="space-y-1.5">
+          {discoveries.map((d, i) => {
+            const [tag, ...rest] = d.split(" — ");
+            return (
+              <li
+                key={i}
+                className="font-mono text-[13px] leading-snug text-paper/90"
+                style={{ animation: "fadeIn 280ms ease-out" }}
+              >
+                <span className="text-stone-soft">
+                  {tag === "Decision fork"
+                    ? "◆"
+                    : tag === "Option"
+                      ? "  ·"
+                      : "▸"}{" "}
+                </span>
+                <span className="uppercase tracking-[0.1em] text-stone-soft/70 text-[10px]">
+                  {tag}
+                </span>{" "}
+                {rest.join(" — ")}
+              </li>
+            );
+          })}
+        </ul>
+
+        <span className="mt-1 inline-block h-4 w-[7px] translate-y-0.5 animate-pulse bg-paper/70" />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {files.map((f) => (
+          <span
+            key={f.name}
+            className="rounded bg-stone-bg px-2 py-1 font-mono text-[11px] text-stone"
+          >
+            {f.name}
+          </span>
+        ))}
+        {files.length === 0 && (
+          <span className="font-mono text-[11px] text-ink-muted">
+            reading pasted notes
+          </span>
+        )}
+      </div>
     </div>
   );
 }
